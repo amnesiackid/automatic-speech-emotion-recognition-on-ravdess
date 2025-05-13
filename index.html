@@ -14,13 +14,50 @@
 </head>
 
 <body>
+   <h1>Project</h1>
+<button id="recordBtn">Record</button>
+<button id="playBtn" disabled>Play</button>
+<audio id="audioPlayback"></audio>
 
-   <h1>API Project</h1>
+<script>
+    let mediaRecorder;
+    let audioChunks = [];
+
+    const recordBtn = document.getElementById('recordBtn');
+    const playBtn = document.getElementById('playBtn');
+    const audioPlayback = document.getElementById('audioPlayback');
+
+    recordBtn.addEventListener('click', async () => {
+        if (recordBtn.textContent === 'Record') {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaRecorder = new MediaRecorder(stream);
+            audioChunks = [];
+
+            mediaRecorder.addEventListener('dataavailable', e => audioChunks.push(e.data));
+            mediaRecorder.addEventListener('stop', () => {
+                const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                audioPlayback.src = URL.createObjectURL(audioBlob);
+                playBtn.disabled = false;
+            });
+
+            mediaRecorder.start();
+            recordBtn.textContent = 'Stop Recording';
+            playBtn.disabled = true;
+        } else {
+            mediaRecorder.stop();
+            recordBtn.textContent = 'Start Recording';
+        }
+    });
+
+    playBtn.addEventListener('click', () => {
+        audioPlayback.play();
+    });
+</script>
 
 </body>
 
 <footer>
-    <p class="copyright-text">© Copyright 2023 _______ </p>
+    <p class="copyright-text">© Copyright 2025 _______ </p>
 </footer>
 
 <!-- Our codes -->
