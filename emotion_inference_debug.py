@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """
 Enhanced Local Emotion Recognition Inference Script with Path Debugging
 Test your trained Wav2Vec2 emotion model with your own audio files
