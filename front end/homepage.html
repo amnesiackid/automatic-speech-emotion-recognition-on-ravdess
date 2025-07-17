@@ -232,8 +232,6 @@
         }
 
 
-
-
         /* --------------------------------------- */
         /* ----- Buttons and Links ----- */
         /* --------------------------------------- */
@@ -333,6 +331,8 @@
             background-color: rgba(0, 105, 238, 0.8); /* Semi-transparent white background */
             transition: all 0.2s cubic-bezier(1, 0.68, 0.16, 0.9);
         }
+
+        
 
         /* --------------------------------------- */
         /* ----- Emotion Images ----- */
@@ -872,6 +872,11 @@
     <main role="main">
         <section class="work" id="emotion">
             <h2>Emotion</h2>
+            <div class="button-container">
+                <input type="file" id="audioFileInput" accept="audio/*" style="display: none;">
+                <button id="uploadBtn" class="btn">Upload File</button>
+            </div>
+            <div id="uploadStatus" style="margin-top: 10px;"></div>
         </section>
 
         <section class="work" id="accent">
@@ -886,9 +891,9 @@
             
             <h2>About</h2>
             <p>
-                Contact details and any professional inquiry details.
+                Any details.
             </p>
-            <a href="mailto:example@example.com" class="btn">st193913@stud.uni-stuttgart.de</a>
+            <a href="mailto:example@example.com" class="btn">st196012@stud.uni-stuttgart.de</a>
             <a href="mailto:example@example.com" class="btn">st193913@stud.uni-stuttgart.de</a>
         </section>
     </main>
@@ -910,7 +915,10 @@
                 this.audioChunks = [];
                 this.recordBtn = document.getElementById('recordBtn');
                 this.stopBtn = document.getElementById('stopBtn');
+                this.uploadBtn = document.getElementById('uploadBtn');
+                this.audioFileInput = document.getElementById('audioFileInput');
                 this.status = document.getElementById('status');
+                this.uploadStatus = document.getElementById('uploadStatus');
                 this.audioVisualizer = document.getElementById('audioControls');
                 this.emotionCards = document.querySelectorAll('.emotion');
                 
@@ -920,6 +928,83 @@
             init() {
                 this.recordBtn.addEventListener('click', () => this.startRecording());
                 this.stopBtn.addEventListener('click', () => this.stopRecording());
+                this.uploadBtn.addEventListener('click', () => this.triggerFileUpload());
+                this.audioFileInput.addEventListener('change', (e) => this.handleFileUpload(e));
+            }
+
+            triggerFileUpload() {
+                this.audioFileInput.click();
+            }
+
+            async handleFileUpload(event) {
+                const file = event.target.files[0];
+                if (!file) return;
+
+                // Validate file type
+                if (!file.type.startsWith('audio/')) {
+                    this.uploadStatus.textContent = 'Error: Please select an audio file';
+                    this.uploadStatus.style.color = 'red';
+                    return;
+                }
+
+                this.uploadStatus.textContent = `Processing ${file.name}...`;
+                this.uploadStatus.style.color = 'black';
+                this.clearEmotionHighlights();
+
+                try {
+                    // Convert file to buffer for processing
+                    const audioBuffer = await this.fileToArrayBuffer(file);
+                    
+                    // Detect emotion from uploaded file
+                    const emotion = await this.detectEmotionFromFile(file);
+                    
+                    // Highlight the detected emotion
+                    this.highlightEmotion(emotion);
+                    
+                } catch (error) {
+                    console.error('Error processing uploaded file:', error);
+                    this.uploadStatus.textContent = 'Error processing file';
+                    this.uploadStatus.style.color = 'red';
+                }
+            }
+
+            async fileToArrayBuffer(file) {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result);
+                    reader.onerror = reject;
+                    reader.readAsArrayBuffer(file);
+                });
+            }
+
+            async detectEmotionFromFile(file) {
+                try {
+                    const formData = new FormData();
+                    formData.append('audio', file);
+                    
+                    // Replace with your model's API endpoint
+                    const response = await fetch('http://127.0.0.1:5000/predict', {
+                        method: 'POST',
+                        body: formData,
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error('Model API request failed');
+                    }
+                    
+                    const result = await response.json();
+                    
+                    return {
+                        emotion: result.emotion || result.predicted_emotion,
+                        confidence: result.confidence || result.probability,
+                    };
+                    
+                } catch (error) {
+                    console.error('Error calling emotion detection model:', error);
+                    
+                    // Fallback: simulate emotion detection for demo purposes
+                    return this.simulateEmotionDetection();
+                }
             }
 
             async startRecording() {
@@ -954,7 +1039,7 @@
                     
                     this.recordBtn.style.display = 'none';
                     this.stopBtn.style.display = 'inline-block';
-                    this.audioVisualizer.style.display = 'flex';
+                    //this.audioVisualizer.style.display = 'flex';
                     
                     this.status.textContent = 'Recording... Speak now!';
                     this.clearEmotionHighlights();
