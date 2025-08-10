@@ -1,4 +1,17 @@
 
+# Speech Emotion Recognition (SER) Project
+
+This is a student project for course "Computational Linguistics Team Laboratory: Phonetics"
+
+This project aims to tackle SER task by training machine learning models primarily on [Ravdess dataset](https://zenodo.org/records/1188976), which includes 8 emotions (neutral, calm, happy, sad, angry, fearful, disgust, surprised). 
+
+Our task is to train models to automatically detect the aforementioned emotions when receiving an audio input.
+## Contributing
+
+Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
+
+Please make sure to update tests as appropriate.
+
 ## Installation
 
 This project includes three different models,
