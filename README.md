@@ -54,7 +54,7 @@ A web application which applies the Wav2Vec2 model can be found in "front end" d
 This is a screenshot from the homepage.
 ![front end/image.png](https://github.com/amnesiackid/automatic-speech-emotion-recognition-on-ravdess/blob/main/front%20end/image.png)
 ## Project story
-More detailed information about this project is in .pdf.
+More detailed information about this project is in Automatic Speech Emotion Recognition with Machine Learning Methods.pdf.
 
 ## Contributing
 
