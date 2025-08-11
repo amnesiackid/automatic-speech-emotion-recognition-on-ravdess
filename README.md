@@ -52,7 +52,7 @@ result
 ## Web application
 A web application which applies the Wav2Vec2 model can be found in "front end" directory.
 This is a screenshot from the homepage.
-![](images/screenshot.png)
+![](front end/image.png)
 ## Project story
 More detailed information about this project is in .pdf.
 
