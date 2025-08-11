@@ -1,7 +1,7 @@
 
 # Speech Emotion Recognition (SER) Project
 
-This is a student project for course "Computational Linguistics Team Laboratory: Phonetics"
+This is a student project for course "Computational Linguistics Team Laboratory: Phonetics" in Institute of Natural Language Processing, University of Stuttgart, Germany.
 
 This project aims to tackle SER task by training machine learning models primarily on [Ravdess dataset](https://zenodo.org/records/1188976), which includes 8 emotions (neutral, calm, happy, sad, angry, fearful, disgust, surprised). 
 
