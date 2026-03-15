@@ -142,18 +142,35 @@ result = classifier("speech.wav")
 
 ---
 
+## Reproducing the Model
+
+```bash
+# 1 — Download RAVDESS, extract features, save to disk
+python src/data.py --output ravdess_encoded
+
+# 2 — Fine-tune (GPU recommended; omit --push-to-hub to save locally)
+python src/train.py --data ravdess_encoded --epochs 16 --push-to-hub
+
+# 3 — Evaluate and generate plots
+python src/evaluate.py --output-dir results/
+```
+
+---
+
 ## Project Structure
 
 ```
-├── demo.py                              # Standalone CLI demo
+├── demo.py                # Standalone CLI demo
 ├── requirements.txt
 ├── Dockerfile
+├── src/
+│   ├── data.py            # Data prep: download, preprocess, save
+│   ├── train.py           # Fine-tuning with HuggingFace Trainer
+│   └── evaluate.py        # Metrics, confusion matrix, per-class accuracy
 ├── server/
-│   └── app.py                           # Flask REST API
+│   └── app.py             # Flask REST API
 ├── frontend/
-│   └── index.html                       # Web interface
-├── notebooks/
-│   └── distilhubert_finetuning.ipynb    # Fine-tuning notebook (Colab)
+│   └── index.html         # Web interface
 ├── tests/
 │   └── test_server.py
 └── docs/
@@ -171,9 +188,3 @@ pytest tests/
 # Run server in debug mode
 FLASK_DEBUG=1 python server/app.py
 ```
-
----
-
-## Fine-tuning
-
-The model was fine-tuned using `notebooks/distilhubert_finetuning.ipynb`, designed for Google Colab. The notebook covers RAVDESS data loading, feature extraction with DistilHuBERT, and the full training loop. The resulting model is published at [amnesiackid/distilhubert-finetuned-ravdess](https://huggingface.co/amnesiackid/distilhubert-finetuned-ravdess).
