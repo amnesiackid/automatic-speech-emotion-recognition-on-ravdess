@@ -1,63 +1,179 @@
+# Speech Emotion Recognition
 
-# Speech Emotion Recognition (SER) Project
+[![Python](https://img.shields.io/badge/Python-3.10-blue.svg)](https://python.org)
+[![HuggingFace](https://img.shields.io/badge/🤗-distilhubert--finetuned--ravdess-yellow)](https://huggingface.co/amnesiackid/distilhubert-finetuned-ravdess)
+[![Flask](https://img.shields.io/badge/Flask-2.x-lightgrey.svg)](https://flask.palletsprojects.com)
+[![Dataset](https://img.shields.io/badge/Dataset-RAVDESS-green.svg)](https://zenodo.org/records/1188976)
 
-This is a student project for course "Computational Linguistics Team Laboratory: Phonetics" in Institute of Natural Language Processing, University of Stuttgart, Germany.
+Automatically detect emotion in speech using a fine-tuned [DistilHuBERT](https://huggingface.co/ntu-spml/distilhubert) model trained on the [RAVDESS](https://zenodo.org/records/1188976) dataset. Achieves **86.8% accuracy** across 8 emotion classes.
 
-This project aims to tackle SER task by training machine learning models primarily on [Ravdess dataset](https://zenodo.org/records/1188976), which includes 8 emotions (neutral, calm, happy, sad, angry, fearful, disgust, surprised). 
+> Academic project — Computational Linguistics Team Laboratory: Phonetics
+> Institute of Natural Language Processing, University of Stuttgart
 
-Our task is to train models to automatically detect the aforementioned emotions when receiving an audio input.
-## Contributing
+---
 
-Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
+## Emotions
 
-Please make sure to update tests as appropriate.
+`neutral` · `calm` · `happy` · `sad` · `angry` · `fearful` · `disgust` · `surprised`
 
-## Installation
+---
 
-This project includes three different models,
+## Architecture
 
-To deploy the baseline model and the Wav2Vec2 integrated model, please run this in terminal:
+```
+Audio Input (.wav / .mp3 / ...)
+        │
+        ▼
+┌───────────────────────────────┐
+│  DistilHuBERT Feature Encoder │  — pre-trained, frozen
+│  (7 transformer layers)       │
+└───────────────┬───────────────┘
+                │  hidden states (768-dim sequence)
+                ▼
+┌───────────────────────────────┐
+│  Mean Pooling                 │
+└───────────────┬───────────────┘
+                │
+                ▼
+┌───────────────────────────────┐
+│  Classification Head          │  — fine-tuned on RAVDESS
+│  Linear(768 → 8)              │
+└───────────────┬───────────────┘
+                │
+                ▼
+        Emotion Label + Confidence
+```
+
+---
+
+## Results
+
+| Metric   | Value                              |
+|----------|------------------------------------|
+| Accuracy | **86.8%**                          |
+| Dataset  | RAVDESS (1440 utterances, 8 classes) |
+| Model    | [amnesiackid/distilhubert-finetuned-ravdess](https://huggingface.co/amnesiackid/distilhubert-finetuned-ravdess) |
+
+---
+
+## Quick Start
+
+### 1. Install
 
 ```bash
-  conda env create -f ser_model.yml
+pip install -r requirements.txt
 ```
-This will install all required packages and dependencies with the correct versions.
 
-Once the installation is complete, activate the environment:
+### 2. Run the demo
+
 ```bash
-conda activate ser_model
+python demo.py path/to/audio.wav
 ```
 
-Fine_tune_distill_hubert_on_ravdess_data.ipynb is tested in [Google Colab](https://colab.google/), therefore we encourage you to run the notebook there. The first cell of the notebook will install all the needed libraries for you.
+Example output:
+```
+Loading amnesiackid/distilhubert-finetuned-ravdess...
+Classifying: speech.wav
 
+Results:
+  happy       85.0%  █████████████████████████
+  neutral     10.0%  ███
+  sad          5.0%  █
+```
 
-## Usage/Examples
+### 3. Start the API server
 
-Baseline model training script and a python script to test the model can be found in "Baseline model" directory.
+```bash
+python server/app.py
+```
 
-A "disabled" Wav2Vec2 integrated model is trained with wav2vec2_model.ipynb. To use it, you have to apply pretrained Wav2Vec2 model on your audio data, then save the last hidden state as feature, which will be the model input.
+Server starts on `http://localhost:5000`. The model is loaded on first request.
 
-A fintuned hubert model is trained with Fine_tune_distill_hubert_on_ravdess_data.ipynb. This model is published on [Hugging face](https://huggingface.co/amnesiackid/distilhubert-finetuned-ravdess). You can use it with a pipeline.
+#### API Endpoints
+
+| Method | Endpoint   | Description                        |
+|--------|------------|------------------------------------|
+| `POST` | `/predict` | Classify emotion in an audio file  |
+| `GET`  | `/health`  | Server health check                |
+| `GET`  | `/emotions`| List supported emotion labels      |
+
+**Predict example:**
+```bash
+curl -X POST http://localhost:5000/predict \
+  -F "audio=@speech.wav"
+```
+
+Response:
+```json
+{
+  "emotion": "happy",
+  "confidence": 0.85,
+  "probabilities": {
+    "happy": 0.85,
+    "neutral": 0.10,
+    "sad": 0.05,
+    ...
+  }
+}
+```
+
+### 4. Deploy with Docker
+
+```bash
+docker build -t ser-api .
+docker run -p 5000:5000 ser-api
+```
+
+---
+
+## Use the Model Directly
 
 ```python
 from transformers import pipeline
-classifier = pipeline("audio-classification", "amnesiackid/distilhubert-finetuned-ravdess")
 
-audio = "/content/1001_DFA_SAD_XX.wav" # replace with your test audio path
-result = classifier(audio)
-result
+classifier = pipeline(
+    "audio-classification",
+    model="amnesiackid/distilhubert-finetuned-ravdess",
+)
+
+result = classifier("speech.wav")
+# [{'label': 'happy', 'score': 0.85}, ...]
 ```
 
+---
 
-## Web application
-A web application which applies the Wav2Vec2 model can be found in "front end" directory.
-This is a screenshot from the homepage.
-![front end/image.png](https://github.com/amnesiackid/automatic-speech-emotion-recognition-on-ravdess/blob/main/front%20end/image.png)
-## Project story
-More detailed information about this project is in Automatic Speech Emotion Recognition with Machine Learning Methods.pdf.
+## Project Structure
 
-## Contributing
+```
+├── demo.py                              # Standalone CLI demo
+├── requirements.txt
+├── Dockerfile
+├── server/
+│   └── app.py                           # Flask REST API
+├── frontend/
+│   └── index.html                       # Web interface
+├── notebooks/
+│   └── distilhubert_finetuning.ipynb    # Fine-tuning notebook (Colab)
+├── tests/
+│   └── test_server.py
+└── docs/
+    └── Automatic Speech Emotion Recognition with Machine Learning Methods.pdf
+```
 
-Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
+---
 
-Please make sure to update tests as appropriate.
+## Development
+
+```bash
+# Run tests (no GPU or internet required — model is mocked)
+pytest tests/
+
+# Run server in debug mode
+FLASK_DEBUG=1 python server/app.py
+```
+
+---
+
+## Fine-tuning
+
+The model was fine-tuned using `notebooks/distilhubert_finetuning.ipynb`, designed for Google Colab. The notebook covers RAVDESS data loading, feature extraction with DistilHuBERT, and the full training loop. The resulting model is published at [amnesiackid/distilhubert-finetuned-ravdess](https://huggingface.co/amnesiackid/distilhubert-finetuned-ravdess).
