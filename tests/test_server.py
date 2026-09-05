@@ -1,7 +1,4 @@
-"""Tests for the Flask emotion recognition API.
-
-The HuggingFace pipeline is mocked so tests run without GPU or internet access.
-"""
+"""Tests for the Flask API. The model pipeline is mocked: no GPU or internet needed."""
 
 import struct
 import wave
@@ -14,11 +11,6 @@ MOCK_RESULTS = [
     {"label": "neutral", "score": 0.10},
     {"label": "sad", "score": 0.05},
 ]
-
-MOCK_ID2LABEL = {
-    0: "neutral", 1: "calm", 2: "happy", 3: "sad",
-    4: "angry", 5: "fearful", 6: "disgust", 7: "surprised",
-}
 
 
 def _make_wav(path: str, duration_s: float = 0.5, sample_rate: int = 16000) -> None:
@@ -33,18 +25,23 @@ def _make_wav(path: str, duration_s: float = 0.5, sample_rate: int = 16000) -> N
 
 @pytest.fixture
 def mock_clf():
-    clf = MagicMock(return_value=MOCK_RESULTS)
-    clf.model.config.id2label = MOCK_ID2LABEL
-    return clf
+    return MagicMock(return_value=MOCK_RESULTS)
 
 
 @pytest.fixture
 def client(mock_clf):
     with patch("server.app.get_classifier", return_value=mock_clf):
         from server.app import app
+
         app.config["TESTING"] = True
         with app.test_client() as c:
             yield c
+
+
+def test_index_serves_frontend(client):
+    r = client.get("/")
+    assert r.status_code == 200
+    assert b"<html" in r.data.lower()
 
 
 def test_health(client):
@@ -58,9 +55,10 @@ def test_health(client):
 def test_emotions(client):
     r = client.get("/emotions")
     assert r.status_code == 200
-    data = r.get_json()
-    assert "emotions" in data
-    assert len(data["emotions"]) == 8
+    labels = r.get_json()["emotions"]
+    assert labels == [
+        "neutral", "calm", "happy", "sad", "angry", "fearful", "disgust", "surprised",
+    ]
 
 
 def test_predict_no_audio(client):
@@ -69,7 +67,7 @@ def test_predict_no_audio(client):
     assert "error" in r.get_json()
 
 
-def test_predict_with_wav(client, tmp_path):
+def test_predict_with_wav(client, mock_clf, tmp_path):
     wav_path = str(tmp_path / "test.wav")
     _make_wav(wav_path)
 
@@ -84,5 +82,21 @@ def test_predict_with_wav(client, tmp_path):
     data = r.get_json()
     assert data["emotion"] == "happy"
     assert data["confidence"] == 0.85
-    assert "probabilities" in data
-    assert len(data["probabilities"]) == 3
+    assert data["probabilities"] == {"happy": 0.85, "neutral": 0.10, "sad": 0.05}
+    mock_clf.assert_called_once()
+
+
+def test_predict_model_error_returns_500(client, mock_clf, tmp_path):
+    mock_clf.side_effect = RuntimeError("boom")
+    wav_path = str(tmp_path / "test.wav")
+    _make_wav(wav_path)
+
+    with open(wav_path, "rb") as f:
+        r = client.post(
+            "/predict",
+            data={"audio": (f, "test.wav")},
+            content_type="multipart/form-data",
+        )
+
+    assert r.status_code == 500
+    assert r.get_json() == {"error": "Prediction failed"}

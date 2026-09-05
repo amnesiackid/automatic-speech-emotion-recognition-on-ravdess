@@ -7,9 +7,9 @@ with the HuggingFace Trainer. The best checkpoint is optionally pushed
 to the HuggingFace Hub.
 
 Usage:
-    python src/train.py --data ravdess_encoded
-    python src/train.py --data ravdess_encoded --epochs 16 --push-to-hub
-    python src/train.py --data ravdess_encoded --no-fp16  # CPU / MPS
+    python -m ser.train --data ravdess_encoded
+    python -m ser.train --data ravdess_encoded --epochs 16 --push-to-hub
+    python -m ser.train --data ravdess_encoded --no-fp16  # CPU / MPS
 """
 
 import argparse
@@ -25,6 +25,8 @@ from transformers import (
     TrainingArguments,
 )
 
+from ser.labels import ID2LABEL, LABEL2ID
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s  %(levelname)-8s  %(message)s",
@@ -35,18 +37,6 @@ logger = logging.getLogger(__name__)
 # ── Constants ─────────────────────────────────────────────────────────────────
 
 BASE_MODEL_ID = "ntu-spml/distilhubert"
-
-ID2LABEL = {
-    0: "neutral",
-    1: "calm",
-    2: "happy",
-    3: "sad",
-    4: "angry",
-    5: "fearful",
-    6: "disgust",
-    7: "surprised",
-}
-LABEL2ID = {v: k for k, v in ID2LABEL.items()}
 
 
 # ── Metric ────────────────────────────────────────────────────────────────────

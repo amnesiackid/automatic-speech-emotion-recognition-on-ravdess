@@ -7,8 +7,8 @@ split, applies DistilHuBERT feature extraction, and saves the processed
 DatasetDict to disk for use by train.py.
 
 Usage:
-    python src/data.py
-    python src/data.py --output data/ravdess_encoded --test-size 0.2 --seed 42
+    python -m ser.data
+    python -m ser.data --output data/ravdess_encoded --test-size 0.2 --seed 42
 """
 
 import argparse
@@ -16,6 +16,8 @@ import logging
 
 from datasets import Audio, DatasetDict, load_dataset
 from transformers import AutoFeatureExtractor
+
+from ser.labels import ID2LABEL, LABEL2ID
 
 logging.basicConfig(
     level=logging.INFO,
@@ -30,18 +32,6 @@ DATASET_ID = "amnesiackid/ravdess-emotion-intensity"
 MODEL_ID = "ntu-spml/distilhubert"
 SAMPLE_RATE = 16_000
 MAX_DURATION = 4.5  # seconds — clips are truncated / zero-padded to this length
-
-ID2LABEL = {
-    0: "neutral",
-    1: "calm",
-    2: "happy",
-    3: "sad",
-    4: "angry",
-    5: "fearful",
-    6: "disgust",
-    7: "surprised",
-}
-LABEL2ID = {v: k for k, v in ID2LABEL.items()}
 
 
 # ── Steps ─────────────────────────────────────────────────────────────────────
@@ -68,7 +58,7 @@ def encode_labels(ds: DatasetDict) -> DatasetDict:
 
 
 def split(ds: DatasetDict, test_size: float, seed: int) -> DatasetDict:
-    """Create a stratified train/test split from the single training split."""
+    """Create a shuffled, seeded (not stratified) train/test split from the single split."""
     ds = ds["train"].train_test_split(test_size=test_size, shuffle=True, seed=seed)
     logger.info(
         "Split — train: %d  test: %d  (test_size=%.0f%%, seed=%d)",

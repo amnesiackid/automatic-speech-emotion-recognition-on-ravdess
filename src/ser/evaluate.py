@@ -9,10 +9,10 @@ inference over the test split, and reports:
   - Per-class accuracy bar chart (saved to per_class_accuracy.png)
 
 Usage:
-    python src/evaluate.py
-    python src/evaluate.py --model amnesiackid/distilhubert-finetuned-ravdess
-    python src/evaluate.py --model ./distilhubert-finetuned-ravdess  # local checkpoint
-    python src/evaluate.py --no-plots  # metrics only, no matplotlib
+    python -m ser.evaluate
+    python -m ser.evaluate --model amnesiackid/distilhubert-finetuned-ravdess
+    python -m ser.evaluate --model ./distilhubert-finetuned-ravdess  # local checkpoint
+    python -m ser.evaluate --no-plots  # metrics only, no matplotlib
 """
 
 import argparse
@@ -24,6 +24,9 @@ from datasets import Audio, load_dataset
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
 from transformers import pipeline
 
+from ser.labels import LABELS
+from ser.predict import MODEL_ID as DEFAULT_MODEL
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s  %(levelname)-8s  %(message)s",
@@ -33,9 +36,7 @@ logger = logging.getLogger(__name__)
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
-DEFAULT_MODEL = "amnesiackid/distilhubert-finetuned-ravdess"
 DATASET_ID = "amnesiackid/ravdess-emotion-intensity"
-LABELS = ["neutral", "calm", "happy", "sad", "angry", "fearful", "disgust", "surprised"]
 SAMPLE_RATE = 16_000
 
 
@@ -104,14 +105,14 @@ def plot_per_class_accuracy(y_true: list, y_pred: list,
 
     class_correct: dict = defaultdict(int)
     class_total: dict = defaultdict(int)
-    for true, pred in zip(y_true, y_pred):
+    for true, pred in zip(y_true, y_pred, strict=True):
         class_total[true] += 1
         if true == pred:
             class_correct[true] += 1
     class_acc = {lbl: class_correct[lbl] / class_total[lbl] for lbl in LABELS}
 
     fig, ax = plt.subplots(figsize=(10, 5))
-    bars = ax.bar(LABELS, [class_acc[l] for l in LABELS],
+    bars = ax.bar(LABELS, [class_acc[lbl] for lbl in LABELS],
                   color="steelblue", edgecolor="white")
     ax.axhline(accuracy, color="red", linestyle="--",
                label=f"Overall ({accuracy:.1%})")
@@ -122,7 +123,7 @@ def plot_per_class_accuracy(y_true: list, y_pred: list,
     ax.set_xticks(range(len(LABELS)))
     ax.set_xticklabels(LABELS, rotation=45, ha="right")
     ax.legend()
-    for bar, lbl in zip(bars, LABELS):
+    for bar, lbl in zip(bars, LABELS, strict=True):
         ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.02,
                 f"{class_acc[lbl]:.0%}", ha="center", va="bottom", fontsize=9)
     fig.tight_layout()
