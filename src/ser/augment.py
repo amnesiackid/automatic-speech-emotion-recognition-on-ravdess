@@ -41,9 +41,17 @@ def add_noise(
     return (x + n * scale).astype(np.float32)
 
 
+RESAMPLE_STEP = 160  # target rates are multiples of this so gcd(sr, new_sr) stays large
+
+
 def speed_perturb(x: np.ndarray, factor: float, sr: int = SAMPLE_RATE) -> np.ndarray:
-    """Speed up (factor > 1) or slow down the clip; pitch shifts with it, as in Kaldi."""
-    new_sr = int(round(sr / factor))
+    """Speed up (factor > 1) or slow down the clip; pitch shifts with it, as in Kaldi.
+
+    The target rate is rounded to a multiple of ``RESAMPLE_STEP``: torchaudio's
+    resampler builds a kernel sized by ``sr / gcd(sr, new_sr)``, and a target
+    rate coprime with 16000 makes one call take seconds instead of milliseconds.
+    """
+    new_sr = int(round(sr / factor / RESAMPLE_STEP)) * RESAMPLE_STEP
     if new_sr == sr:
         return x
     y = AF.resample(torch.from_numpy(np.ascontiguousarray(x)), orig_freq=sr, new_freq=new_sr)

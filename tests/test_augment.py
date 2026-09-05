@@ -35,6 +35,17 @@ def test_speed_perturb_changes_length(tone):
     assert augment.speed_perturb(tone, 1.0, SR) is tone
 
 
+def test_speed_perturb_is_fast_for_any_factor(tone):
+    import time
+
+    rng = np.random.default_rng(0)
+    start = time.perf_counter()
+    for _ in range(20):
+        augment.speed_perturb(tone, rng.uniform(0.9, 1.1), SR)
+    # a coprime target rate used to cost ~5 s per call; 20 calls must stay well under that
+    assert time.perf_counter() - start < 2.0
+
+
 def test_reverb_keeps_length_and_level(tone):
     out = augment.add_reverb(tone, 0.4, np.random.default_rng(0), SR)
     assert out.shape == tone.shape and out.dtype == np.float32
