@@ -3,51 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="shortcut icon" type="image/png" href="./images/logo.png" />
-    <title>Emotion detection</title>
-    <meta name="keywords" content="Your name, description, keywords" />
+    <title>Speech Emotion Recognition</title>
     <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/normalize/5.0.0/normalize.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/Swiper/3.4.2/css/swiper.min.css">
     <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Open+Sans:300,400,700,800">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Jost:400&display=swap">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
-        /* CSS styles here */
-        /* (Include all the CSS from the provided files) */
-        /* Basic Setup */
-        
-
-        @font-face {
-            font-family: 'Hk Grotesk';
-            font-style: normal;
-            font-weight: 400;
-            src: url('./fonts/HKGrotesk-Regular.woff') format('woff');
-        }
-
-        @font-face {
-            font-family: 'Jost';
-            font-style: normal;
-            font-weight: 400;
-            src: url('./fonts/Jost-Regular.ttf') format('woff');
-        }
-
         /* --------------------------------------- */
         /* ----- Basic Setup ----- */
         /* --------------------------------------- */
 
-        @font-face {
-            font-family: 'Hk Grotesk';
-            font-style: normal;
-            font-weight: 400;
-            src: url('./fonts/HKGrotesk-Regular.woff') format('woff');
-        }
-
-        @font-face {
-            font-family: 'Jost';
-            font-style: normal;
-            font-weight: 400;
-            src: url('./fonts/Jost-Regular.ttf') format('woff');
-        }
-        
         * {
             margin: 0;
             padding: 0;
@@ -107,8 +73,6 @@
             font-weight: 400;
             color: var(--white);
             line-height: var(--line-height-normal);
-            background: linear-gradient(rgba(0,0,0, .1), rgba(0,0,0, .4)), 
-            url('./background/background.jpg');
             background: var(--light-grey);
             overflow-x: hidden;
         }
@@ -506,8 +470,7 @@
 
         .header {
             position: relative;
-            background: linear-gradient(rgba(0,0,0, .1), rgba(0,0,0, .4)), 
-                url('./background/background.jpg');
+            background: linear-gradient(rgba(0,0,0, .1), rgba(0,0,0, .4));
             height: 100vh;
             background-size: cover;
             background-position: center;
@@ -572,6 +535,7 @@
         /* ----- Work ----- */
         /* --------------------------------------- */
         .work {
+            color: var(--black);  /* body text is white for the header; sections sit on light grey */
             display: flex;  /* Establishes this section as a flex container */
             flex-direction: column;  /* Stacks flex items vertically */
             align-items: center;  /* Centers the heading horizontally */
@@ -813,7 +777,6 @@
         <nav class="nav" role="navigation">
             <ul class="nav__items">
                 <li class="nav__item"><a href="#emotion" class="nav__link">Emotion</a></li>
-                <li class="nav__item"><a href="#accent" class="nav__link">Accent</a></li>
                 <li class="nav__item"><a href="#about" class="nav__link">About</a></li>
             </ul>
         </nav>
@@ -879,35 +842,33 @@
             <div id="uploadStatus" style="margin-top: 10px;"></div>
         </section>
 
-        <section class="work" id="accent">
-            <h2>Accent</h2>
-            <p> 
-                Test where are you from? 
-            </p>
-    
-        </section>
-
         <section class="work" id="about">
-            
             <h2>About</h2>
             <p>
-                Any details.
+                Record a few seconds of speech or upload an audio file, and the page sends it to
+                the local prediction server. Audio is classified by a DistilHuBERT model fine-tuned
+                on the RAVDESS dataset. Built for the Computational Linguistics Team Laboratory
+                (Phonetics) at the University of Stuttgart.
             </p>
-            <a href="mailto:example@example.com" class="btn">st196012@stud.uni-stuttgart.de</a>
-            <a href="mailto:example@example.com" class="btn">st193913@stud.uni-stuttgart.de</a>
+            <a href="https://github.com/amnesiackid/automatic-speech-emotion-recognition-on-ravdess" class="btn">Source code</a>
+            <a href="https://huggingface.co/amnesiackid/distilhubert-finetuned-ravdess" class="btn">Model on Hugging Face</a>
         </section>
     </main>
 
     <footer role="contentinfo" class="footer">
         <p>
-            &copy; 2025 - Portfolio by Feiyang Yang. All rights reserved.
+            &copy; 2025 Feiyang Yang and Zhiyu Bao. Speech Emotion Recognition, CL Team Lab, University of Stuttgart.
         </p>
     </footer>
 
     <a href="#top" class="back-to-top" title="Back to Top">
-        <img src="./images/arrow-up.svg" alt="Back to Top"/>
+        <span aria-hidden="true">&#8593;</span>
     </a>
     <script>
+        // When the page is served by the Flask app (python server/app.py) the API is same-origin.
+        // When opened directly from disk (file://) it falls back to the default local server.
+        const API_BASE = window.location.protocol.startsWith('http') ? '' : 'http://127.0.0.1:5000';
+
         class EmotionDetector {
             constructor() {
                 this.isRecording = false;
@@ -981,29 +942,25 @@
                 try {
                     const formData = new FormData();
                     formData.append('audio', file);
-                    
-                    // Replace with your model's API endpoint
-                    const response = await fetch('http://127.0.0.1:5000/predict', {
+
+                    const response = await fetch(`${API_BASE}/predict`, {
                         method: 'POST',
                         body: formData,
                     });
-                    
+
                     if (!response.ok) {
-                        throw new Error('Model API request failed');
+                        throw new Error(`Prediction request failed (${response.status})`);
                     }
-                    
+
                     const result = await response.json();
-                    
+
                     return {
-                        emotion: result.emotion || result.predicted_emotion,
-                        confidence: result.confidence || result.probability,
+                        emotion: result.emotion,
+                        confidence: result.confidence,
                     };
-                    
+
                 } catch (error) {
-                    console.error('Error calling emotion detection model:', error);
-                    
-                    // Fallback: simulate emotion detection for demo purposes
-                    return this.simulateEmotionDetection();
+                    return this.serverUnavailable(error);
                 }
             }
 
@@ -1096,63 +1053,45 @@
             }
 
             async detectEmotion(audioBuffer) {
-                // This is where you'll integrate with your speech emotion recognition model
-                // Replace this with your actual model API call
-                
                 try {
-                    // Example API call structure - replace with your actual endpoint
                     const formData = new FormData();
                     const audioBlob = new Blob([audioBuffer], { type: 'audio/webm' });
-                    formData.append('audio', audioBlob);
-                    
-                    // Replace with your model's API endpoint
-                    const response = await fetch('http://127.0.0.1:5000/predict', {
+                    formData.append('audio', audioBlob, 'recording.webm');
+
+                    const response = await fetch(`${API_BASE}/predict`, {
                         method: 'POST',
                         body: formData,
-                        headers: {
-                            // Add any required headers for your API
-                            // 'Authorization': 'Bearer YOUR_API_KEY',
-                            // 'Content-Type': 'multipart/form-data'
-                        }
                     });
-                    
+
                     if (!response.ok) {
-                        throw new Error('Model API request failed');
+                        throw new Error(`Prediction request failed (${response.status})`);
                     }
-                    
+
                     const result = await response.json();
-                    
-                    // Process the response according to your model's output format
+
                     return {
-                        emotion: result.emotion || result.predicted_emotion,
-                        confidence: result.confidence || result.probability,
-                        // Add other fields as needed
+                        emotion: result.emotion,
+                        confidence: result.confidence,
                     };
-                    
+
                 } catch (error) {
-                    console.error('Error calling emotion detection model:', error);
-                    
-                    // Fallback: simulate emotion detection for demo purposes
-                    // Remove this when you have your actual model integrated
-                    return this.simulateEmotionDetection();
+                    return this.serverUnavailable(error);
                 }
             }
 
-            // Demo function - remove when you have your actual model
-            simulateEmotionDetection() {
-                const emotions = ['happy', 'sad', 'angry', 'fear', 'surprise', 'disgust', 'neutral'];
-                const randomEmotion = emotions[Math.floor(Math.random() * emotions.length)];
-                const confidence = Math.random() * 0.4 + 0.6; // 60-100% confidence
-                
-                return {
-                    emotion: randomEmotion,
-                    confidence: confidence
-                };
+            serverUnavailable(error) {
+                console.error('Error calling the prediction server:', error);
+                this.status.textContent =
+                    'Could not get a prediction. Is the server running? (python server/app.py)';
+                return null;
             }
 
             highlightEmotion(result) {
                 this.clearEmotionHighlights();
-                
+                if (!result) {
+                    return;
+                }
+
                 const emotionCard = document.querySelector(`[data-emotion="${result.emotion}"]`);
                 if (emotionCard) {
                     emotionCard.classList.add('active');
