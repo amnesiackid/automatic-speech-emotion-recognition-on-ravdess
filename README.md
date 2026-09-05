@@ -103,21 +103,59 @@ docker build -t ser-api .
 docker run -p 5000:5000 ser-api
 ```
 
-## Reproducing the model
+## Training and evaluation
 
-The fine-tuning pipeline is three scripts in `src/ser/`; a GPU is strongly recommended.
+The pipeline is three scripts in `src/ser/`; a GPU is strongly recommended for training.
 
 ```bash
 pip install -e ".[train]"
-python -m ser.data --output ravdess_encoded          # download, resample to 16 kHz, split, extract features
-python -m ser.train --data ravdess_encoded --epochs 16   # add --push-to-hub to publish
-python -m ser.evaluate --output-dir results/         # accuracy, classification report, confusion matrix
+python -m ser.data --output ravdess_encoded              # download, resample to 16 kHz, split
+python -m ser.train --data ravdess_encoded --epochs 20   # add --push-to-hub to publish
+python -m ser.evaluate --data ravdess_encoded --robustness --output-dir results/
 ```
 
-Training recipe (also in [`notebooks/03_distilhubert_finetune.ipynb`](notebooks/03_distilhubert_finetune.ipynb)):
-`ntu-spml/distilhubert` with a new classification head, all weights trainable, clips truncated to
-4.5 s, 16 epochs, batch size 8, learning rate 5e-5 with 10 % warm-up, mixed precision, best epoch by
-evaluation accuracy.
+`ser.data` writes raw 16 kHz waveforms with `train` / `validation` / `test` splits. The test split is
+the same seed-42 20 % the published model was scored on; the validation split (10 %, stratified) is
+carved out of the training portion and is what `ser.train` uses to pick the best epoch. Pass
+`--split-by-actor` to hold out whole speakers instead, which is the honest setting for "how does it
+do on a voice it has never heard".
+
+### Why the published model fails on microphone recordings
+
+The published model was trained on clean studio clips with no augmentation and, per its config,
+SpecAugment off; its training loss reached 0.002, so it memorised the corpus. On the clean test split
+it is fine, but with background noise it collapses onto a few classes, which is exactly what users
+report ("almost only calm and disgust"):
+
+| Condition (RAVDESS test split, 288 clips) | Accuracy | What it predicts |
+|---|---|---|
+| clean | 85.4 % | all eight classes, balanced |
+| + white noise, 20 dB SNR | 44.4 % | fearful, disgust, sad, calm; never neutral |
+| + white noise, 10 dB SNR | 35.1 % | fearful 124, disgust 87, calm 56 of 288 |
+
+(`python -m ser.evaluate --robustness` reproduces this table for any checkpoint. The Hub weights are
+the final epoch of the original run; the best epoch in its training log scored 86.8 % on this split.)
+
+### The revised recipe
+
+`ser.train` now trains for robustness rather than for the clean split:
+
+- **Waveform augmentation on the fly** ([`src/ser/augment.py`](src/ser/augment.py)): white or pink
+  noise at 5–30 dB SNR, speed perturbation ×0.9–1.1, synthetic reverb, random low-pass, and a random
+  4.5 s crop. Each epoch sees a different version of every clip. This is the change that matters.
+- **SpecAugment** time masking inside the model (`--mask-time-prob`, default 0.05).
+- **Frozen CNN feature encoder**, the standard choice for small fine-tuning sets.
+- **Label smoothing 0.1 and weight decay 0.01.**
+- **Model selection on the validation split**, so the test number is not optimistic.
+
+Everything is a flag: `--no-augment --no-spec-augment --no-freeze-feature-encoder --label-smoothing 0
+--eval-split test` reproduces the old recipe. Other defaults: 20 epochs, batch size 8, learning
+rate 5e-5 with 10 % warm-up, mixed precision. Expect the clean-split accuracy to stay around the
+old number or drop a point or two while the noisy-condition accuracy rises substantially; judge a
+checkpoint by the `--robustness` table, not by the clean number alone.
+
+The original notebook recipe is kept in
+[`notebooks/03_distilhubert_finetune.ipynb`](notebooks/03_distilhubert_finetune.ipynb).
 
 ## Project layout
 
@@ -125,9 +163,10 @@ evaluation accuracy.
 ├── src/ser/                 # the package: labels, inference, and the training pipeline
 │   ├── labels.py            #   the one label table used everywhere
 │   ├── predict.py           #   model loading + classify(); also the `ser-predict` CLI
-│   ├── data.py              #   dataset download / preprocessing
-│   ├── train.py             #   fine-tuning with the HF Trainer
-│   └── evaluate.py          #   metrics and plots
+│   ├── data.py              #   dataset download, resampling, train/validation/test splits
+│   ├── augment.py           #   noise / speed / reverb / low-pass augmentations
+│   ├── train.py             #   fine-tuning with the HF Trainer (augmentation on the fly)
+│   └── evaluate.py          #   metrics, plots, and the noise-robustness sweep
 ├── server/app.py            # Flask API, also serves the web demo
 ├── frontend/                # the web demo (static HTML/JS)
 ├── experiments/             # the two earlier models, each with its own README

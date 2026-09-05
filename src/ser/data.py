@@ -1,23 +1,47 @@
 """
 Data preparation for RAVDESS speech emotion recognition.
 
-Downloads the RAVDESS dataset from HuggingFace, resamples audio to 16 kHz,
-encodes string emotion labels to integers, generates a reproducible train/test
-split, applies DistilHuBERT feature extraction, and saves the processed
-DatasetDict to disk for use by train.py.
+Downloads the RAVDESS dataset from the HuggingFace Hub, decodes and resamples
+every clip to 16 kHz mono, encodes labels, extracts the actor id from the file
+name, and writes a DatasetDict with ``train`` / ``validation`` / ``test``
+splits to disk for train.py and evaluate.py.
+
+Waveforms are stored raw (not as model features) so that train.py can apply
+augmentation on the fly.
+
+Splits:
+  * default: the same seed-42 random 80/20 train/test split the published
+    model was evaluated on, plus a stratified validation split carved out of
+    the training portion for model selection
+  * ``--split-by-actor``: hold out whole actors instead, so validation and
+    test speakers are never seen in training (a more honest estimate of how
+    the model behaves on new voices)
 
 Usage:
     python -m ser.data
-    python -m ser.data --output data/ravdess_encoded --test-size 0.2 --seed 42
+    python -m ser.data --output data/ravdess --val-size 0.1 --seed 42
+    python -m ser.data --split-by-actor
 """
 
+from __future__ import annotations
+
 import argparse
+import io
 import logging
+import re
 
-from datasets import Audio, DatasetDict, load_dataset
-from transformers import AutoFeatureExtractor
+import numpy as np
+import soundfile as sf
+import torch
+import torchaudio.functional as AF
+from datasets import Audio, ClassLabel, Dataset, DatasetDict, Features, Value, load_dataset
 
-from ser.labels import ID2LABEL, LABEL2ID
+from ser.labels import LABEL2ID, LABELS
+
+try:  # datasets >= 4 calls the list feature ``List``; older versions ``Sequence``
+    from datasets import List as ListFeature
+except ImportError:  # pragma: no cover
+    from datasets import Sequence as ListFeature
 
 logging.basicConfig(
     level=logging.INFO,
@@ -29,91 +53,140 @@ logger = logging.getLogger(__name__)
 # ── Constants ─────────────────────────────────────────────────────────────────
 
 DATASET_ID = "amnesiackid/ravdess-emotion-intensity"
-MODEL_ID = "ntu-spml/distilhubert"
 SAMPLE_RATE = 16_000
-MAX_DURATION = 4.5  # seconds — clips are truncated / zero-padded to this length
+MAX_DURATION = 4.5  # seconds; train.py / evaluate.py crop clips to this length
+
+_ACTOR_RE = re.compile(r"-(\d\d)\.wav$")
+
+PROCESSED_FEATURES = Features(
+    {
+        "waveform": ListFeature(Value("float32")),
+        "label": ClassLabel(names=LABELS),
+        "actor": Value("int32"),
+        "intensity": Value("string"),
+    }
+)
 
 
 # ── Steps ─────────────────────────────────────────────────────────────────────
 
-def load_and_resample(dataset_id: str) -> DatasetDict:
-    """Load the raw RAVDESS dataset and resample all audio to SAMPLE_RATE."""
+def load_raw(dataset_id: str = DATASET_ID) -> Dataset:
+    """Load the Hub dataset without decoding audio (decoding is done by :func:`decode`)."""
     logger.info("Loading dataset: %s", dataset_id)
-    ds = load_dataset(dataset_id)
-    ds = ds.cast_column("audio", Audio(sampling_rate=SAMPLE_RATE))
-    logger.info("Loaded %d utterances, resampled to %d Hz", len(ds["train"]), SAMPLE_RATE)
+    ds = load_dataset(dataset_id, split="train")
+    ds = ds.cast_column("audio", Audio(decode=False))
+    logger.info("Loaded %d utterances", len(ds))
     return ds
 
 
-def encode_labels(ds: DatasetDict) -> DatasetDict:
-    """Map string emotion labels to integer class indices."""
-    def _encode(example):
-        example["emotion_labels"] = LABEL2ID[example["emotion_labels"]]
-        return example
-
-    ds = ds.map(_encode)
-    unique = sorted(set(ds["train"]["emotion_labels"]))
-    logger.info("Label indices after encoding: %s", unique)
-    return ds
-
-
-def split(ds: DatasetDict, test_size: float, seed: int) -> DatasetDict:
-    """Create a shuffled, seeded (not stratified) train/test split from the single split."""
-    ds = ds["train"].train_test_split(test_size=test_size, shuffle=True, seed=seed)
-    logger.info(
-        "Split — train: %d  test: %d  (test_size=%.0f%%, seed=%d)",
-        len(ds["train"]), len(ds["test"]), test_size * 100, seed,
-    )
-    return ds
+def decode_waveform(audio: dict, target_sr: int = SAMPLE_RATE) -> np.ndarray:
+    """Decode one ``{"bytes", "path"}`` audio entry to a 16 kHz mono float32 array."""
+    if audio.get("bytes") is not None:
+        array, sr = sf.read(io.BytesIO(audio["bytes"]), dtype="float32", always_2d=True)
+    else:
+        array, sr = sf.read(audio["path"], dtype="float32", always_2d=True)
+    mono = array.mean(axis=1)
+    if sr != target_sr:
+        mono = AF.resample(torch.from_numpy(mono), orig_freq=sr, new_freq=target_sr).numpy()
+    return mono.astype(np.float32)
 
 
-def extract_features(ds: DatasetDict, model_id: str, max_duration: float) -> DatasetDict:
-    """Apply DistilHuBERT feature extraction to every audio clip."""
-    logger.info("Loading feature extractor: %s", model_id)
-    feature_extractor = AutoFeatureExtractor.from_pretrained(
-        model_id,
-        do_normalize=True,
-        return_attention_mask=True,
-    )
-    max_samples = int(feature_extractor.sampling_rate * max_duration)
-    logger.info("Max input length: %d samples (%.1f s)", max_samples, max_duration)
+def actor_id(path: str | None) -> int:
+    """RAVDESS file names end in the actor number: 03-01-06-01-02-02-10.wav -> 10."""
+    match = _ACTOR_RE.search(path or "")
+    return int(match.group(1)) if match else -1
 
-    def _preprocess(examples):
-        audio_arrays = [x["array"] for x in examples["audio"]]
-        return feature_extractor(
-            audio_arrays,
-            sampling_rate=feature_extractor.sampling_rate,
-            max_length=max_samples,
-            truncation=True,
-            return_attention_mask=True,
-            return_tensors="np",
-        )
 
-    logger.info("Extracting features (this may take a few minutes)...")
+def decode(ds: Dataset, num_proc: int = 1) -> Dataset:
+    """Decode + resample every clip and encode labels and actors."""
+
+    def _process(example):
+        return {
+            "waveform": decode_waveform(example["audio"]),
+            "label": LABEL2ID[example["emotion_labels"]],
+            "actor": actor_id(example["audio"].get("path")),
+            "intensity": example["intensity"],
+        }
+
+    logger.info("Decoding and resampling to %d Hz ...", SAMPLE_RATE)
     ds = ds.map(
-        _preprocess,
-        remove_columns=["audio", "intensity"],
-        batched=True,
-        batch_size=100,
+        _process,
+        remove_columns=ds.column_names,
+        features=PROCESSED_FEATURES,
+        num_proc=num_proc,
+        desc="decode",
     )
-    ds = ds.rename_column("emotion_labels", "label")
-    logger.info("Feature extraction complete: %s", ds)
+    logger.info("Actors found: %s", sorted(set(ds["actor"])))
     return ds
 
 
-def validate(ds: DatasetDict) -> None:
+def make_splits(
+    ds: Dataset,
+    test_size: float = 0.2,
+    val_size: float = 0.1,
+    seed: int = 42,
+    by_actor: bool = False,
+) -> DatasetDict:
+    """Return a DatasetDict with train / validation / test.
+
+    ``test_size`` and ``val_size`` are fractions of the whole dataset. With
+    ``by_actor=False`` the test split is exactly the seed-42 split used for the
+    published model; the validation split is then taken (stratified by label)
+    from the remaining training clips. With ``by_actor=True`` whole actors are
+    assigned to each split.
+    """
+    if by_actor:
+        actors = sorted(set(ds["actor"]))
+        rng = np.random.default_rng(seed)
+        order = [actors[i] for i in rng.permutation(len(actors))]
+        n_test = max(1, round(len(actors) * test_size))
+        n_val = max(1, round(len(actors) * val_size)) if val_size > 0 else 0
+        test_actors, val_actors = set(order[:n_test]), set(order[n_test : n_test + n_val])
+        logger.info("Held-out actors — test: %s  validation: %s",
+                    sorted(test_actors), sorted(val_actors))
+        held_out = test_actors | val_actors
+        splits = DatasetDict(
+            {
+                "train": ds.filter(lambda a: a not in held_out, input_columns="actor"),
+                "validation": ds.filter(lambda a: a in val_actors, input_columns="actor"),
+                "test": ds.filter(lambda a: a in test_actors, input_columns="actor"),
+            }
+        )
+    else:
+        first = ds.train_test_split(test_size=test_size, shuffle=True, seed=seed)
+        train, test = first["train"], first["test"]
+        if val_size > 0:
+            val_frac = val_size / (1.0 - test_size)
+            second = train.train_test_split(
+                test_size=val_frac, shuffle=True, seed=seed, stratify_by_column="label"
+            )
+            train, validation = second["train"], second["test"]
+        else:
+            validation = None
+        splits = DatasetDict({"train": train, "test": test})
+        if validation is not None:
+            splits["validation"] = validation
+
+    for name, part in splits.items():
+        counts = np.bincount(part["label"], minlength=len(LABELS))
+        logger.info("%-10s %4d clips  per class: %s", name, len(part), counts.tolist())
+    return splits
+
+
+def validate(splits: DatasetDict) -> None:
     """Sanity-check the processed dataset."""
-    sample = ds["train"][0]
-    assert set(sample.keys()) == {"label", "input_values", "attention_mask"}, (
-        f"Unexpected keys: {sample.keys()}"
-    )
-    assert isinstance(sample["label"], int), "Label should be int"
-    logger.info(
-        "Validation passed — keys: %s, label: %s (%s)",
-        list(sample.keys()),
-        sample["label"],
-        ID2LABEL[sample["label"]],
-    )
+    sample = splits["train"][0]
+    assert set(sample) == {"waveform", "label", "actor", "intensity"}, sample.keys()
+    wave = np.asarray(sample["waveform"], dtype=np.float32)
+    assert wave.ndim == 1 and 1.0 <= len(wave) / SAMPLE_RATE <= 10.0, wave.shape
+    assert 0 <= sample["label"] < len(LABELS)
+    if "validation" in splits:
+        train_actors = set(splits["train"]["actor"])
+        for name in ("validation", "test"):
+            overlap = train_actors & set(splits[name]["actor"])
+            logger.info("Actors shared between train and %s: %d", name, len(overlap))
+    logger.info("Validation passed — first clip: %.2f s, label %s",
+                len(wave) / SAMPLE_RATE, LABELS[sample["label"]])
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
@@ -122,24 +195,24 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--output", default="ravdess_encoded",
-                        help="Directory to save the processed dataset (default: ravdess_encoded)")
+                        help="Directory to save the processed DatasetDict (default: %(default)s)")
     parser.add_argument("--test-size", type=float, default=0.2,
-                        help="Fraction of data held out for testing (default: 0.2)")
-    parser.add_argument("--seed", type=int, default=42,
-                        help="Random seed for reproducible splitting (default: 42)")
+                        help="Fraction of clips (or actors) held out for testing")
+    parser.add_argument("--val-size", type=float, default=0.1,
+                        help="Fraction held out for validation / model selection (0 disables)")
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--split-by-actor", action="store_true",
+                        help="Speaker-independent splits: hold out whole actors")
+    parser.add_argument("--num-proc", type=int, default=1, help="Workers for decoding")
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-
-    ds = load_and_resample(DATASET_ID)
-    ds = encode_labels(ds)
-    ds = split(ds, test_size=args.test_size, seed=args.seed)
-    ds = extract_features(ds, model_id=MODEL_ID, max_duration=MAX_DURATION)
-    validate(ds)
-
-    ds.save_to_disk(args.output)
+    ds = decode(load_raw(), num_proc=args.num_proc)
+    splits = make_splits(ds, args.test_size, args.val_size, args.seed, args.split_by_actor)
+    validate(splits)
+    splits.save_to_disk(args.output)
     logger.info("Dataset saved to: %s", args.output)
 
 

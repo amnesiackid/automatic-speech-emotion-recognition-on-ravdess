@@ -32,8 +32,8 @@ docker build -t ser-api . && docker run -p 5000:5000 ser-api
 
 # Reproduce the fine-tuning pipeline (GPU recommended)
 python -m ser.data --output ravdess_encoded
-python -m ser.train --data ravdess_encoded --epochs 16 --push-to-hub
-python -m ser.evaluate --output-dir results/
+python -m ser.train --data ravdess_encoded --epochs 20 --push-to-hub
+python -m ser.evaluate --data ravdess_encoded --robustness --output-dir results/
 ```
 
 ## Architecture
@@ -47,9 +47,24 @@ RAVDESS ones: `fearful` and `surprised`, not `fear` / `surprise`.
 The CLI `main()` lives here too. `transformers` is imported inside `get_classifier` so importing
 the package stays cheap.
 
-**`src/ser/data.py` / `train.py` / `evaluate.py`** are the training pipeline (download + 16 kHz
-resample + seed-42 80/20 split + feature extraction; HF `Trainer` fine-tuning of
-`ntu-spml/distilhubert`; accuracy, classification report and plots). Each has an argparse `main()`.
+**`src/ser/data.py`** downloads the Hub dataset, decodes with soundfile + torchaudio (no torchcodec
+dependency, works on Windows), and writes raw 16 kHz waveforms with `train` / `validation` / `test`
+splits. The test split is the seed-42 20 % the published model was scored on; validation is carved
+out of train (stratified). `--split-by-actor` gives speaker-independent splits (actor id is parsed
+from the file name).
+
+**`src/ser/augment.py`** holds the waveform augmentations (noise, speed, reverb, low-pass, crop) and
+`WaveformAugmenter`. **`src/ser/train.py`** applies them on the fly through `Dataset.set_transform`
+(hence `remove_unused_columns=False`), enables SpecAugment, freezes the feature encoder, uses label
+smoothing, and selects the best epoch on the validation split. It supports transformers 4.46+ and
+5.x (`warmup_ratio` vs float `warmup_steps`). `--max-steps 3 --no-fp16` is the CPU smoke test.
+**`src/ser/evaluate.py`** runs batched inference on a split from `ser.data` and `--robustness`
+re-evaluates under added noise at 20 / 10 dB SNR.
+
+Background: the published model collapses to calm / disgust / fearful on noisy microphone audio
+(86 % clean, ~50 % at 20 dB SNR, ~34 % at 10 dB). That is a training-data problem, not an inference
+bug; the augmentation recipe above is the fix, and any new checkpoint should be judged by the
+`--robustness` table, not the clean accuracy alone.
 
 **`server/app.py`** is the Flask app. It imports `classify` and `get_classifier` from `ser.predict`
 and serves `frontend/` as static files at `/`. Tests patch `server.app.get_classifier`.
