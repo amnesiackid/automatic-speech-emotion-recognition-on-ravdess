@@ -3,1124 +3,1470 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Speech Emotion Recognition</title>
-    <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/normalize/5.0.0/normalize.min.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/Swiper/3.4.2/css/swiper.min.css">
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Open+Sans:300,400,700,800">
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Jost:400&display=swap">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <title>Speech Emotion Recognition · RAVDESS</title>
+    <meta name="description" content="Record or upload speech and let a DistilHuBERT model fine-tuned on RAVDESS tell you which of eight emotions it hears.">
+    <link rel="icon" href="images/happy.png" type="image/png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Jost:wght@400;500;600&display=swap" rel="stylesheet">
+    <!-- JSZip unpacks .zip uploads in the browser, so the server only ever receives single audio files. -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" defer></script>
     <style>
-        /* --------------------------------------- */
-        /* ----- Basic Setup ----- */
-        /* --------------------------------------- */
-
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: inherit;
-        }
-
+        /* ------------------------------------------------------------------ */
+        /* Tokens                                                              */
+        /* ------------------------------------------------------------------ */
         :root {
-            --font-size-small: 1.8rem;
-            --font-size-normal: 2.2rem;
-            --font-size-medium: 2.8rem;
-            --font-size-medium-1: 3.6rem;
-            --font-size-large: 5.5rem;
-            --font-size-huge: 7.5rem;
-            --font-stack: 'Hk Grotesk', sans-serif;
+            --ink: #1c1b2e;
+            --ink-2: #4a4867;
+            --muted: #7a7893;
+            --line: rgba(28, 27, 46, .10);
+            --glass: rgba(255, 255, 255, .62);
+            --glass-strong: rgba(255, 255, 255, .86);
+            --accent: #5b5bd6;
+            --ok: #2f9e6b;
+            --bad: #d9534f;
+            --radius: 24px;
+            --radius-sm: 14px;
+            --shadow: 0 10px 30px rgba(50, 40, 90, .10), 0 1px 2px rgba(50, 40, 90, .06);
+            --font-body: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+            --font-display: 'Jost', 'Inter', system-ui, sans-serif;
 
-            --line-height-normal: 1.7;
-            --line-height-small: 1.2;
-
-            --black: #000;
-            --blue: #0069ee;
-            --white: #f0e9f2;
-            --white-1: #e5e5e6da;
-            --grey: #f5f5f5;
-            --light-grey: #e0e0e0;
-            --pure-white: #fff;
-
-
-            --container-max-width: 1180px;
-            --container-normal-width: 800px;
-            --container-medium-width: 700px; 
-            --container-small-width: 500px;
-
-            --gutter-huge: 12rem;
-            --gutter-medium: 6rem;
-            --gutter-normal: 3rem;
-            --gutter-small-1: 2.5rem;
-            --gutter-small: 2rem;
-
-            --border-light: 1px solid rgb(195, 193, 193);
+            /* One pastel per emotion, sampled from the illustrations in images/. */
+            --c-neutral: #cbc2f1;
+            --c-calm: #c7dcf5;
+            --c-happy: #f6bdc8;
+            --c-sad: #f8d9ae;
+            --c-angry: #ef8f78;
+            --c-fearful: #c8e5fb;
+            --c-disgust: #f4c1c7;
+            --c-surprised: #f9e39c;
         }
 
-        html {
-            font-size: 62.5%; /* (16/10)*100 = 62.5% => 1rem = 10px */
-            box-sizing: border-box;
-            scroll-behavior: smooth;
-        }
+        * { box-sizing: border-box; }
 
-        @media(max-width: 1000px) {
-            html {
-                font-size: 52%;
-            }
-        }
+        html { scroll-behavior: smooth; }
 
         body {
-            font-size: var(--font-size-small);
-            font-family: var(--font-stack);
-            font-weight: 400;
-            color: var(--white);
-            line-height: var(--line-height-normal);
-            background: var(--light-grey);
-            overflow-x: hidden;
+            margin: 0;
+            font-family: var(--font-body);
+            font-size: 16px;
+            line-height: 1.5;
+            color: var(--ink);
+            background: #f4f3fb;
+            min-height: 100vh;
+            -webkit-font-smoothing: antialiased;
         }
 
-        .row {
-            max-width: var(--container-max-width);
-            margin: 0 auto;
-        }
+        img { max-width: 100%; }
 
-        @media(max-width: 1340px) {
-            .row {
-                max-width: 1100px;
-            }
-        }
-
-        @media(max-width: 1240px) {
-            .row {
-                padding: 0 var(--gutter-medium);
-            }
-        }
-
-        @media(max-width: 600px) {
-            .row {
-                padding: 0 var(--gutter-normal);
-            }
-        }
-
-        @media(max-width: 600px) {
-            .row {
-                padding: 0 var(--gutter-small);
-            }
-        }
-
-        section {
-            border-bottom: var(--border-light);
-            position: relative;
-            left: 50%;
-            transform: translate(-50%, 0%); /* Adjusts the position to truly center the element */
-            max-width: 80%; /* Ensures the text has full width for better control */
-        }
-
-        img {
-            object-fit: contain;
-            max-width: 100%;
-        }
-
-        /* --------------------------------------- */
-        /* ----- Headlines and Paragraphs ----- */
-        /* --------------------------------------- */
-
-        h1{
-            font-family: 'Jost', sans-serif;
-            font-weight: 400;
-            line-height: var(--line-height-small);
-            color: var(--pure-white);
-        }
-        h2,
-        h3 {
-            font-family: 'Jost', sans-serif;
-            font-weight: 400;
-            line-height: var(--line-height-small);
-            color: var(--black);
-        }
-
-        .heading-primary {
-            line-height: 1;
-            font-size: var(--font-size-medium);
-            font-weight: 400;
-            margin-left: var(--gutter-normal); /* Add margin to the left of the title */
-            margin-right: var(--gutter-normal); /* Add margin to the right of the title */
-        }
-
-        @media(max-width: 900px) {
-            .heading-primary {
-                font-size: 6.5rem;
-            }
-        }
-
-        h2 {
-            font-size: var(--font-size-large);
-            margin-bottom: var(--gutter-medium);
-        }
-
-        h2::after {
-            content: '';
-            display: block;
-            height: 2px;
-            width: 30rem;
-            background: var(--blue);
-            margin: var(--gutter-small) 0;
-        }
-
-        h3 {
-            font-size: var(--font-size-medium-1);
-            margin-bottom: var(--gutter-small);
-        }
-
-        @media(max-width: 500px) {
-            .heading-primary {
-                font-size: var(--font-size-large);
-            }
-
-            h2 {
-                font-size: var(--font-size-medium-1);
-            }
-
-            h3 {
-                font-size: var(--font-size-medium);
-            }
-        }
-
-        p {
-            margin: var(--gutter-small-1) 0;
-            color: var(--black); /* Change color to black */
-        }
-
-        @media(max-width: 900px) {
-            p { 
-                max-width: var(--container-small-width);
-            }
-        }
-
-
-        /* --------------------------------------- */
-        /* ----- Buttons and Links ----- */
-        /* --------------------------------------- */
-
-        a {
-            color: var(--white);
-            font-weight: 400;
-            font-family: 'Jost', sans-serif;
-            transition: all .2s;
-            outline: 2px solid transparent;
-        }
-
-        ::-moz-focus-inner {
-            border: 0;
-        }
-
-        button:focus,
-        a:focus {
-            outline: 2px solid var(--blue);
-        }
-
-        body:not(.user-is-tabbing) button:focus,
-        body:not(.user-is-tabbing) a:focus {
-            outline: none;
-        }
-
-        .link:hover {
-            color: var(--blue);
-        }
-
-        .btn {
-            position: relative;
-            display: inline-block;
-            padding: 1rem 4.2rem;
-            text-decoration: none;
-            color: var(--black);
-            border: 1px solid  var(--blue);
-            font-weight: 400;
-            border-radius: 30px;
-            overflow: hidden; /* Ensures that the ::after pseudo-element does not overflow the button's rounded corners */
-        }
-
-        .btn:focus {
-            outline: none;
-        }
-
-        .btn:hover {
-            
-            color: var(--pure-white); /* Change the text color to white on hover */
-            
-        }
-
-        .btn::after {
-            content: '';
-            display: block;
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 100%;
-            background: var(--black);
-            height: 100%;
-            z-index: -1;
-            transition: all 0.2s cubic-bezier(1, 0.68, 0.16, 0.9);
-        }
-
-        .btn:hover::after,
-        .btn:focus::after {
-            right: 0;
-            background: var(--blue);
-        }
-        .button-container {
-            display: flex;
-            justify-content: start; /* Adjust as needed: start, space-between, center, etc.*/
-            align-items: center;
-        }
-
-        .btn--blue {
-            display: inline-block;
-            margin-right: 10px;
-            backdrop-filter: blur(30px); /* Adjust the px value to increase or decrease the blur effect */
-            -webkit-backdrop-filter: blur(30px); /* For Safari */
-            background-color: rgba(255, 255, 255, 0.3); /* Semi-transparent white background */
-            border: 1px solid transparent; /* Set border color to transparent */
-            color: white; /* Ensuring text is visible, adjust as needed */
-            box-shadow: 0px -2px 5px rgba(0, 0, 0, 0.2); /* Optional: adds a subtle shadow below the button */
-        }
-        .btn--blue:last-child {
-            margin-right: 0;
-        }
-
-        .btn--blue::after {
-            display: none;
-        }
-
-        .btn--blue:hover,
-        .btn--blue:focus {
-            background-color: rgba(0, 105, 238, 0.8); /* Semi-transparent white background */
-            transition: all 0.2s cubic-bezier(1, 0.68, 0.16, 0.9);
-        }
-
-        
-
-        /* --------------------------------------- */
-        /* ----- Emotion Images ----- */
-        /* --------------------------------------- */
-
-        .emotion img {
-            width: 80px;
-            height: 80px;
-            object-fit: contain;  /* 保持比例缩放，避免变形 */
-            
-        }
-        * {
-        box-sizing: border-box;
-        }
-
-        .link__text {
-            position: relative;
-            display: inline-block;
-            padding: .6rem;
-            color: inherit;
-            text-decoration: none;
-            border-bottom: 1px solid var(--blue);
-        }
-
-        .link__text::after {
-            content: '';
-            display: block;
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 100%;
-            background: var(--white);
-            height: 100%;
-            z-index: -1;
-            transition: all 0.2s cubic-bezier(1, 0.68, 0.16, 0.9);
-        }
-
-        .link__text:focus {
-            outline: none;
-        }
-
-        .link__text:hover::after,
-        .link__text:focus:after {
-            right: 0;
-            background: var(--blue);
-        }
-
-        .link__text span {
-            padding-left: 1rem;
-            font-family: sans-serif;
-        }
-
-        /* ----- Back to Top ----- */
-
-        .back-to-top {
+        /* Soft blurred colour fields behind everything. */
+        .bg {
             position: fixed;
-            bottom: 4rem;
-            right: 4rem;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 5.5rem;
-            width: 5.5rem;
-            background-color: var(--blue);
+            inset: 0;
+            z-index: -1;
+            overflow: hidden;
+            background: linear-gradient(180deg, #f7f5ff 0%, #f1f4fb 55%, #f8f2f5 100%);
+        }
+
+        .bg span {
+            position: absolute;
             border-radius: 50%;
-            z-index: 10;
-            visibility: hidden;
-            transition: all .4s;
+            filter: blur(80px);
+            opacity: .8;
         }
 
-        .back-to-top__image {
-            height: 70%;
-        }
+        .bg .b1 { width: 52vw; height: 52vw; background: #ddd5ff; top: -18vw; left: -12vw; }
+        .bg .b2 { width: 42vw; height: 42vw; background: #ffd9e3; top: 8vh; right: -14vw; }
+        .bg .b3 { width: 48vw; height: 48vw; background: #d2e9ff; bottom: -22vw; left: 26vw; }
 
-        @media(max-width: 900px) {
-            .back-to-top {
-                right: 2rem;
-            }
-        }
-
-        @media(max-width: 500px) {
-            .back-to-top {
-                right: 1rem;
-            }
-        }
-
-        /* --------------------------------------- */
-        /* ----- Navigation ----- */
-        /* --------------------------------------- */
-
-        .nav {
+        /* ------------------------------------------------------------------ */
+        /* Header with the four section tabs                                   */
+        /* ------------------------------------------------------------------ */
+        .topbar {
+            position: sticky;
+            top: 0;
+            z-index: 50;
             display: flex;
             justify-content: center;
-            padding: var(--gutter-small) 0;
-            padding-right: var(--gutter-normal); /* Add padding to the right of the nav */
-            padding-left: var(--gutter-normal); /* Add padding to the left of the nav */
-            background-color: rgba(255, 255, 255, 0.3); /* Semi-transparent white background */
-            backdrop-filter: blur(10px); /* Gaussian blur */
-            -webkit-backdrop-filter: blur(10px); /* For Safari */
-            width: 100%;
-            position: fixed; /* Keeps the nav fixed at the top of the viewport */
-            top: 0; /* Aligns the nav to the top */
-            left: 0; /* Aligns the nav to the left edge */
-            z-index: 1000; /* Ensures the nav stays on top of other content */
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1); /* Optional: adds a subtle shadow for depth */
+            padding: 14px 16px;
+            background: rgba(255, 255, 255, .55);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border-bottom: 1px solid var(--line);
         }
 
-        .nav__items {
+        .tabs {
             display: flex;
-            list-style: none;
+            gap: 4px;
+            padding: 4px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, .65);
+            border: 1px solid var(--line);
+            max-width: 100%;
+            overflow-x: auto;
+            scrollbar-width: none;
         }
 
-        .nav__item:not(:last-child) {
-            margin-right: var(--gutter-medium);
-        }
+        .tabs::-webkit-scrollbar { display: none; }
 
-        @media(max-width: 500px) {
-            .nav {
-                justify-content: center;
-            }
-        }
-
-        @media(max-width: 400px) {
-            .nav__item:not(:last-child) {
-                margin-right: var(--gutter-normal);
-            }
-        }
-
-        @media(max-width: 300px) {
-            .nav {
-                font-size: var(--font-size-small);
-            }
-        }
-
-        .nav__link {
-            position: relative;
-            display: inline-block;
-            padding: 1rem 0;
+        .tab {
+            font-family: var(--font-display);
+            font-size: 1.05rem;
+            font-weight: 500;
+            padding: 8px 20px;
+            border-radius: 999px;
+            color: var(--ink-2);
             text-decoration: none;
-            color: var(--black);
-            transition: all .2s;
-            padding-top: var(--gutter-small); /* Increase top padding */
-            padding-bottom: var(--gutter-small); /* Increase bottom padding */
+            white-space: nowrap;
+            transition: background .2s, color .2s;
         }
 
-        .nav__link::after {
-            content: '';
-            position: absolute;
-            bottom: 0;
-            left: 0;
-            right: 100%;
-            display: inline-block;
-            height: 1rem;
-            background: var(--white);
-            transition: all 0.25s cubic-bezier(1, 0.68, 0.16, 0.9);
+        .tab:hover { color: var(--ink); background: rgba(255, 255, 255, .9); }
+        .tab[aria-current="page"] { background: var(--ink); color: #fff; }
+
+        @media (max-width: 560px) {
+            .tab { font-size: .95rem; padding: 8px 13px; }
         }
 
-        .nav__link:hover {
-            color: var(--blue);
+        /* ------------------------------------------------------------------ */
+        /* Pages                                                               */
+        /* ------------------------------------------------------------------ */
+        main {
+            max-width: 1040px;
+            margin: 0 auto;
+            padding: 44px 20px 72px;
         }
 
-        .nav__link:hover::after {
-            right: 0;
-            height: 2px;
-            background: var(--blue);
+        .page { display: none; }
+        .page.is-active { display: block; animation: fade .35s ease; }
+
+        @keyframes fade {
+            from { opacity: 0; transform: translateY(6px); }
+            to { opacity: 1; transform: none; }
         }
 
-        /* --------------------------------------- */
-        /* ----- Header ----- */
-        /* --------------------------------------- */
+        .page__head { text-align: center; margin-bottom: 30px; }
 
-        .header {
-            position: relative;
-            background: linear-gradient(rgba(0,0,0, .1), rgba(0,0,0, .4));
-            height: 100vh;
-            background-size: cover;
-            background-position: center;
-            background-attachment: fixed;
-            font-size: var(--font-size-normal);
-            padding-top: var(--gutter-normal); /* Increased top padding to accommodate nav bar */
-            padding-bottom: var(--gutter-normal);
-            padding-left: var(--gutter-small);
-            padding-right: var(--gutter-small);
-            display: flex; /* Flexbox layout */
-            align-items: center;  /* Vertical centering */
-            text-align: center; /* Centers the text within the element */
-            justify-content: center;  /* Horizontal centering */
+        .page__title {
+            font-family: var(--font-display);
+            font-weight: 500;
+            font-size: clamp(1.9rem, 3.5vw, 2.5rem);
+            letter-spacing: -.01em;
+            margin: 0 0 6px;
         }
 
-        .header__text {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%); /* Adjusts the position to truly center the element */
-            max-width: 80%; /* Ensures the text has full width for better control */
-            color: var(--white);
+        .page__lead {
+            color: var(--muted);
+            margin: 0 auto;
+            max-width: 560px;
+            font-size: 1.02rem;
+            line-height: 1.6;
         }
 
-        .header__text p {
-            margin: 1.5rem 0 3.5rem;
-            max-width: var(--container-medium-width);
-            font-family: 'Jost', sans-serif;
-            font-size: var(--font-size-medium);
-            color: inherit;
-        }
-        /* 让所有带id的section在被链接定位时，距离视口顶部保留30%的高度距离，看起来就像在中间。*/
-        section[id] {
-             scroll-margin-top: 30vh; 
+        .card {
+            background: var(--glass);
+            backdrop-filter: blur(18px);
+            -webkit-backdrop-filter: blur(18px);
+            border: 1px solid rgba(255, 255, 255, .75);
+            box-shadow: var(--shadow);
+            border-radius: var(--radius);
+            padding: 32px;
         }
 
-        @media(max-width: 500px) {
-            .header {
-                text-align: center;
-            }
-
-            .header__text p {
-                transform: scale(.8);
-            }
+        @media (max-width: 560px) {
+            .card { padding: 22px 18px; }
         }
 
-        @media (max-width: 768px) {
-            .header {
-                flex-direction: column;
-            }
-            .header__text-box {
-                align-items: center;
-            }
+        /* ------------------------------------------------------------------ */
+        /* Emotion row (shared by Predict Recording and Game)                  */
+        /* ------------------------------------------------------------------ */
+        .emotions {
+            display: grid;
+            grid-template-columns: repeat(8, 1fr);
+            gap: 8px;
+            max-width: 900px;
+            margin: 0 auto 28px;
         }
 
-
-        .header .header__text-box .highlight {
-            color: white; /* Increasing specificity */
+        @media (max-width: 720px) {
+            .emotions { grid-template-columns: repeat(4, 1fr); }
         }
 
-        /* --------------------------------------- */
-        /* ----- Work ----- */
-        /* --------------------------------------- */
-        .work {
-            color: var(--black);  /* body text is white for the header; sections sit on light grey */
-            display: flex;  /* Establishes this section as a flex container */
-            flex-direction: column;  /* Stacks flex items vertically */
-            align-items: center;  /* Centers the heading horizontally */
-            text-align: center;  /* Centers the text within the heading element itself */
-            padding: 20px 0;  /* Adds some padding inside the section */
-            border-radius: 30px;  /* Applies rounded corners to the section */
-            background-color: rgba(255, 255, 255, 0.3);  /* Semi-transparent white background */
-            backdrop-filter: blur(30px);  /* Adds a blur effect to the background */
-            box-shadow: 0px 2px 5px rgba(0, 0, 0, 0.2);  /* Optional shadow for depth */
-            margin-top: 10px;  /* Additional top margin to distance it from elements above, if necessary */
-            margin-bottom: 10px;
-            margin-right: 20px;
-        }
-
-        .work__box {
+        .emo {
+            margin: 0;
             display: flex;
-            align-items: center;  /* Centers content horizontally in the box */
-        }
-
-        @media(max-width: 900px) {
-            .work__box {
-                align-items: initial;
-                flex-direction: column-reverse;
-            }
-        }
-
-        .work__box:not(:last-child) {
-            margin-bottom: 25rem;
-        }
-
-        @media(max-width: 500px) {
-            .work__box:not(:last-child) {
-                margin-bottom: 20rem;
-            }
-        }
-
-        .work__links {
-            display: flex;
+            flex-direction: column;
             align-items: center;
+            gap: 5px;
+            padding: 14px 6px 10px;
+            border-radius: 18px;
+            transition: transform .25s, background .25s, box-shadow .25s, opacity .25s;
         }
 
-        .work__text {
-            text-align: center;  /* Centers the text inside the text container */
-            width: 100%;  /* Optional: ensures text container uses full width of its parent */
+        .emo__img {
+            width: 72px;
+            height: 72px;
+            object-fit: contain;
+            transition: transform .3s;
         }
 
-        .work__list {
-            /* list-style-type: square; */
-            list-style-position: inside;
-            margin-bottom: var(--gutter-normal);
+        .emo figcaption {
+            font-family: var(--font-display);
+            font-size: 1rem;
+            color: var(--ink-2);
+            text-transform: capitalize;
         }
 
-        .work__code {
+        .emo__bar {
+            width: 68%;
+            height: 4px;
+            border-radius: 2px;
+            background: var(--line);
+            overflow: hidden;
+        }
+
+        .emo__bar i {
             display: block;
-            height: 3rem;
-            margin-left: var(--gutter-normal);
-            transition: all .3s;
+            height: 100%;
+            width: 0;
+            background: var(--emo, var(--accent));
+            transition: width .6s ease;
         }
 
-        .work__code:hover {
-            transform: scale(1.2);
+        .emo__conf {
+            font-size: .78rem;
+            color: var(--muted);
+            min-height: 1.1em;
+            font-variant-numeric: tabular-nums;
         }
 
-        .work__image-box {
-            margin-bottom: var(--gutter-normal);
+        .emo.is-active {
+            background: var(--glass-strong);
+            box-shadow: 0 0 0 3px var(--emo), var(--shadow);
+            transform: translateY(-4px);
         }
 
-        @media(min-width: 901px) {
-            .work__image-box {
-                flex: 1;
-                margin: 0 0 0 10rem;
-            }
+        .emo.is-active .emo__img { transform: scale(1.12); }
+        .emo.is-active figcaption { color: var(--ink); font-weight: 600; }
+        .emotions.is-dimmed .emo:not(.is-active) { opacity: .55; }
+
+        /* ------------------------------------------------------------------ */
+        /* Buttons, status lines                                               */
+        /* ------------------------------------------------------------------ */
+        .btn {
+            font-family: var(--font-display);
+            font-size: 1.05rem;
+            font-weight: 500;
+            border: 0;
+            border-radius: 999px;
+            padding: 12px 26px;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            text-decoration: none;
+            color: var(--ink);
+            transition: transform .15s, box-shadow .2s, background .2s;
         }
 
-        @media(max-width: 900px) {
-            .work__code {
-                height: 4rem;
-            }
+        .btn:active { transform: scale(.98); }
+        .btn:disabled { opacity: .5; cursor: not-allowed; }
+        .btn:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+        .btn--primary { background: var(--ink); color: #fff; box-shadow: 0 8px 20px rgba(28, 27, 46, .25); }
+        .btn--primary:hover { background: #2d2c47; }
+        .btn--ghost { background: rgba(255, 255, 255, .75); border: 1px solid var(--line); }
+        .btn--ghost:hover { background: #fff; }
+        .btn--danger { background: var(--bad); color: #fff; box-shadow: 0 8px 20px rgba(217, 83, 79, .3); }
+        .btn--small { font-size: .95rem; padding: 8px 16px; }
+
+        .btn .dot { width: 10px; height: 10px; border-radius: 50%; background: #ff5c5c; }
+        .btn--danger .dot { background: #fff; animation: pulse 1.1s infinite; }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.6); opacity: .5; }
         }
 
-        /* --------------------------------------- */
-        /* ----- Clients ----- */
-        /* --------------------------------------- */
+        .status {
+            color: var(--muted);
+            margin: 18px 0 0;
+            min-height: 1.5em;
+        }
 
-        .client__logos {
+        .status.is-error { color: var(--bad); }
+
+        .result {
+            font-family: var(--font-display);
+            font-size: 1.4rem;
+            margin: 8px 0 0;
+        }
+
+        .result strong { font-weight: 600; text-transform: capitalize; }
+
+        .result small {
+            font-family: var(--font-body);
+            font-size: .9rem;
+            color: var(--muted);
+            margin-left: 8px;
+        }
+
+        audio { width: 100%; max-width: 360px; margin-top: 18px; }
+
+        .stage { text-align: center; max-width: 640px; margin: 0 auto; }
+
+        [hidden] { display: none !important; }
+
+        /* ------------------------------------------------------------------ */
+        /* Batch prediction                                                    */
+        /* ------------------------------------------------------------------ */
+        .choice-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+        }
+
+        .choice {
+            text-align: left;
+            cursor: pointer;
+            font: inherit;
+            color: inherit;
+            transition: transform .2s, box-shadow .2s;
+        }
+
+        .choice:hover { transform: translateY(-3px); box-shadow: 0 16px 36px rgba(50, 40, 90, .14); }
+        .choice:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+        .choice__icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 14px;
+            display: grid;
+            place-items: center;
+            background: var(--ink);
+            color: #fff;
+            margin-bottom: 16px;
+        }
+
+        .choice h3 {
+            font-family: var(--font-display);
+            font-weight: 500;
+            font-size: 1.35rem;
+            margin: 0 0 6px;
+        }
+
+        .choice p { margin: 0; color: var(--muted); line-height: 1.55; }
+
+        .choice .note {
+            display: block;
+            margin-top: 14px;
+            font-size: .82rem;
+            color: var(--ink-2);
+        }
+
+        .results { margin-top: 24px; }
+
+        .results__head {
             display: flex;
             justify-content: space-between;
-            filter: invert(100%) grayscale(100%) opacity(.8);
-        }
-
-        .client__logo {
-            height: 6.5rem;
-            max-width: 18rem;
-        }
-
-        @media(max-width: 1240px) {
-            .client__logos {
-                overflow-x: scroll;
-                padding: var(--gutter-normal);
-            }
-
-            .client__logo:not(:last-of-type) {
-                margin-right: var(--gutter-medium);
-            }
-        }
-
-        /* --------------------------------------- */
-        /* ----- About ----- */
-        /* --------------------------------------- */
-
-        .about__content {
-            display: flex;
-            flex-direction: row-reverse;
             align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-bottom: 14px;
         }
 
-        @media(max-width: 900px) {
-            .about__content {
-                flex-direction: column-reverse;
-                align-items: initial;
-            }
+        .results__head h3 { font-family: var(--font-display); font-weight: 500; font-size: 1.3rem; margin: 0; }
+
+        .progress { height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; }
+        .progress i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+
+        .summary { display: flex; gap: 32px; flex-wrap: wrap; margin: 18px 0 10px; }
+
+        .stat b {
+            display: block;
+            font-family: var(--font-display);
+            font-size: 1.6rem;
+            font-weight: 500;
+            line-height: 1.2;
+            font-variant-numeric: tabular-nums;
         }
 
-        .about__photo-container {
-            margin-bottom: var(--gutter-normal);
+        .stat span { color: var(--muted); font-size: .85rem; }
+
+        .table-wrap { overflow-x: auto; }
+
+        table { width: 100%; border-collapse: collapse; font-size: .95rem; }
+
+        th, td {
+            padding: 10px 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--line);
+            white-space: nowrap;
+            vertical-align: middle;
         }
 
-        @media(min-width: 901px) {
-            .about__text {
-                flex: 0 0 35%;
-            }
-            
-            .about__photo-container {
-                flex: 1;
-                margin: 0 var(--gutter-huge) 0 0;
-            }
+        th {
+            font-weight: 600;
+            color: var(--ink-2);
+            font-size: .78rem;
+            text-transform: uppercase;
+            letter-spacing: .06em;
         }
 
-        /* --------------------------------------- */
-        /* ----- Contact ----- */
-        /* --------------------------------------- */
+        td.file { max-width: 280px; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+        td.num { font-variant-numeric: tabular-nums; }
 
-        .contact__info {
-            max-width: var(--container-medium-width);
+        .pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 3px 10px 3px 4px;
+            border-radius: 999px;
+            background: var(--emo, #ececf2);
+            font-size: .88rem;
+            text-transform: capitalize;
         }
 
-        /* --------------------------------------- */
-        /* ----- Footer ----- */
-        /* --------------------------------------- */
+        .pill img { width: 20px; height: 20px; }
 
-        .footer {
-            text-align: center;
-            padding: var(--gutter-medium) 0 var(--gutter-normal);
-        }
+        .match { font-weight: 600; }
+        .match.ok { color: var(--ok); }
+        .match.no { color: var(--bad); }
+        .muted { color: var(--muted); }
 
-        .footer__social-links {
-            display: flex;
-            justify-content: center;
-            padding: var(--gutter-normal) 0;
-            list-style: none;
-        }
-
-        .footer__social-link-item:not(:last-of-type) {
-            margin-right: var(--gutter-small);
-        }
-
-        .footer__social-image {
-            height: 4rem;
-        }
-
-        .footer__github-buttons {
-            display: flex;
-            justify-content: center;
-        }
-
-        .footer__github-buttons iframe {
-            height: 2.5rem;
-            width: 84px;
-            transform: translateY(3px);
-        }
-
-        @media(max-width: 500px) {
-            .footer {
-                padding: var(--gutter-medium) 0;
-            } 
-        }
-
-        /* --------------------------------------- */
-        /* ---------- Social Media Bar ----------- */
-        /* --------------------------------------- */
-
-        .social-media-bar {
-            position: absolute;
-            text-decoration: none; /* Removes underline from links */
-            bottom: 5%; /* Anchors the bar to the bottom of the header */
-            left: 50%; /* Initially positions the left edge of the bar at the center of the header */
-            transform: translateX(-50%); /* Moves the bar leftwards by half its own width to center it */
-            background-color: rgba(255, 255, 255, 0.3); /* Semi-transparent white background */
-            backdrop-filter: blur(30px); /* Blur effect */
-            -webkit-backdrop-filter: blur(30px); /* For Safari */
-            border-radius: 30px; /* Rounded corners */
-            display: flex;
-            justify-content: center; /* Centers icons horizontally */
-            align-items: center; /* Center the icons within the bar vertically */
-            padding: 10px 10px; /* Top and bottom padding, and some padding on the sides */
-            box-shadow: 0px -2px 5px rgba(0, 0, 0, 0.2); /* Optional: adds subtle shadow above the social media bar */
-        }
-
-
-        .social-icon {
-            display: inline-block;
-            text-decoration: none; /* Removes underline from links */
-            color: white; /* Sets the color of the link text, if any */
-            margin: 5px 15px; /* Adds horizontal spacing between icons */
-        }
-
-        .social-icon img {
-            width: 30px; /* Sets a uniform size for the icons */
+        .play {
+            border: 1px solid var(--line);
+            background: #fff;
+            border-radius: 50%;
+            width: 30px;
             height: 30px;
-            display: block;  /* Removes any extra line-height space */
-            transition: transform 0.3s ease; /* Smooth transition for hover effects */
+            cursor: pointer;
+            color: var(--ink);
+            display: inline-grid;
+            place-items: center;
         }
 
-        /* Specific styling for the LinkedIn icon if it has a unique class or ID */
-        .social-icon.linkedin img { /* Assume you add a class "linkedin" to the LinkedIn <a> tag */
-            width: 37px;  /* Adjust the size to match other icons */
-            height: 37px; /* Adjust the size to match other icons */
+        .play:hover { background: var(--ink); color: #fff; }
+
+        /* The sample picker window */
+        dialog.picker {
+            border: 0;
+            border-radius: var(--radius);
+            padding: 0;
+            width: min(780px, 94vw);
+            max-height: 88vh;
+            background: #fff;
+            color: var(--ink);
+            box-shadow: 0 30px 80px rgba(20, 20, 40, .3);
+            display: flex;
+            flex-direction: column;
         }
 
-        .social-icon:hover img {
-            transform: scale(1.2); /* Slightly enlarges the icon on hover */
+        dialog.picker:not([open]) { display: none; }
+
+        dialog::backdrop { background: rgba(20, 18, 40, .5); }
+
+        .picker__head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            padding: 20px 24px;
+            border-bottom: 1px solid var(--line);
         }
 
-        
+        .picker__head h3 { font-family: var(--font-display); font-weight: 500; font-size: 1.35rem; margin: 0; }
+
+        .close {
+            border: 0;
+            background: transparent;
+            font-size: 1.6rem;
+            line-height: 1;
+            cursor: pointer;
+            color: var(--muted);
+            padding: 4px 8px;
+            border-radius: 8px;
+        }
+
+        .close:hover { background: var(--line); color: var(--ink); }
+
+        .picker__filters {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+            padding: 16px 24px;
+        }
+
+        .picker__filters label { display: flex; flex-direction: column; gap: 4px; font-size: .78rem; color: var(--muted); }
+
+        select {
+            font: inherit;
+            font-size: .95rem;
+            padding: 8px 10px;
+            border-radius: 10px;
+            border: 1px solid var(--line);
+            background: #fff;
+            color: var(--ink);
+        }
+
+        .picker__list {
+            flex: 1;
+            min-height: 120px;
+            max-height: 44vh;
+            overflow: auto;
+            padding: 0 24px;
+            border-top: 1px solid var(--line);
+        }
+
+        .picker__empty { padding: 32px 0; text-align: center; color: var(--muted); }
+
+        .sample {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 8px 0;
+            border-bottom: 1px solid var(--line);
+            cursor: pointer;
+            font-size: .92rem;
+        }
+
+        .sample input { width: 16px; height: 16px; accent-color: var(--ink); }
+        .sample code { font-size: .85rem; color: var(--ink-2); }
+        .sample .meta { color: var(--muted); margin-left: auto; white-space: nowrap; }
+
+        .picker__foot {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 24px;
+            border-top: 1px solid var(--line);
+            flex-wrap: wrap;
+        }
+
+        .picker__foot .group { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+        .count { color: var(--muted); font-size: .9rem; }
+
+        /* ------------------------------------------------------------------ */
+        /* Game                                                                */
+        /* ------------------------------------------------------------------ */
+        .game { max-width: 680px; margin: 0 auto; text-align: center; }
+
+        .eyebrow {
+            text-transform: uppercase;
+            letter-spacing: .12em;
+            font-size: .75rem;
+            color: var(--muted);
+            margin: 0 0 10px;
+        }
+
+        .sentence {
+            font-family: var(--font-display);
+            font-size: clamp(1.5rem, 3vw, 2.1rem);
+            font-weight: 500;
+            margin: 0 0 12px;
+        }
+
+        .target {
+            margin: 0 0 22px;
+            color: var(--ink-2);
+            font-size: 1.05rem;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 4px 14px 4px 6px;
+            border-radius: 999px;
+            background: var(--emo);
+            color: var(--ink);
+            font-family: var(--font-display);
+            font-weight: 500;
+            font-size: 1.05rem;
+            text-transform: capitalize;
+        }
+
+        .chip img { width: 32px; height: 32px; }
+
+        .verdict {
+            font-family: var(--font-display);
+            font-size: 1.25rem;
+            min-height: 1.5em;
+            margin: 14px 0 0;
+        }
+
+        .verdict.ok { color: var(--ok); }
+        .verdict.no { color: var(--bad); }
+
+        .game__actions { display: flex; gap: 10px; justify-content: center; margin-top: 18px; flex-wrap: wrap; }
+
+        .scoreboard {
+            display: flex;
+            justify-content: center;
+            gap: 36px;
+            margin-top: 26px;
+            padding-top: 22px;
+            border-top: 1px solid var(--line);
+        }
+
+        .scoreboard .stat { text-align: center; }
+
+        /* ------------------------------------------------------------------ */
+        /* About                                                               */
+        /* ------------------------------------------------------------------ */
+        .about { max-width: 720px; margin: 0 auto; }
+        .about p { line-height: 1.7; color: var(--ink-2); font-size: 1.05rem; margin: 0 0 16px; }
+        .about__links { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 22px; }
+
+        .facts {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 14px;
+            margin-top: 28px;
+        }
+
+        .fact {
+            padding: 14px 16px;
+            border-radius: var(--radius-sm);
+            background: rgba(255, 255, 255, .6);
+            border: 1px solid var(--line);
+        }
+
+        .fact b { display: block; font-family: var(--font-display); font-size: 1.3rem; font-weight: 500; }
+        .fact span { color: var(--muted); font-size: .85rem; }
+
+        footer {
+            text-align: center;
+            color: var(--muted);
+            font-size: .85rem;
+            padding: 0 20px 36px;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after { animation: none !important; transition: none !important; }
+        }
     </style>
 </head>
 <body>
-    <header class="header" role="banner" id="top">
-        <nav class="nav" role="navigation">
-            <ul class="nav__items">
-                <li class="nav__item"><a href="#emotion" class="nav__link">Emotion</a></li>
-                <li class="nav__item"><a href="#about" class="nav__link">About</a></li>
-            </ul>
+    <div class="bg" aria-hidden="true"><span class="b1"></span><span class="b2"></span><span class="b3"></span></div>
+
+    <header class="topbar">
+        <nav class="tabs" aria-label="Sections">
+            <a class="tab" href="#batch" data-page="batch">Batch Prediction</a>
+            <a class="tab" href="#record" data-page="record">Predict Recording</a>
+            <a class="tab" href="#game" data-page="game">Game</a>
+            <a class="tab" href="#about" data-page="about">About</a>
         </nav>
-
-
-        <div class="header__text-box">
-             <div id="emotion-container" style="margin-top: 20px; display: flex; justify-content: center; flex-wrap: wrap;">
-            <figure class="emotion" data-emotion="neutral" style="margin: 10px; text-align: center;">
-                <img src="images/neutral.png" alt="neutral" width="80" height="80">
-                <figcaption>neutral</figcaption>
-            </figure>
-            <figure class="emotion" data-emotion="calm" style="margin: 10px; text-align: center;">
-                <img src="images/calm.png" alt="calm" width="80" height="80">
-                <figcaption>calm</figcaption>
-            </figure>
-            <figure class="emotion" data-emotion="happy" style="margin: 10px; text-align: center;">
-                <img src="images/happy.png" alt="happy" width="80" height="80">
-                <figcaption>happy</figcaption>
-            </figure>
-            <figure class="emotion" data-emotion="sad" style="margin: 10px; text-align: center;">
-                <img src="images/sad.png" alt="sad" width="80" height="80">
-                <figcaption>sad</figcaption>
-            </figure>
-            <figure class="emotion" data-emotion="angry" style="margin: 10px; text-align: center;">
-                <img src="images/angry.png" alt="angry" width="80" height="80">
-                <figcaption>angry</figcaption>
-            </figure>
-            <figure class="emotion" data-emotion="fearful" style="margin: 10px; text-align: center;">
-                <img src="images/fearful.png" alt="fearful" width="80" height="80">
-                <figcaption>fearful</figcaption>
-            </figure>
-            <figure class="emotion" data-emotion="surprised" style="margin: 10px; text-align: center;">
-                <img src="images/surprised.png" alt="surprised" width="80" height="80">
-                <figcaption>surprised</figcaption>
-            </figure>
-            <figure class="emotion" data-emotion="disgust" style="margin: 10px; text-align: center;">
-                <img src="images/disgust.png" alt="disgust" width="80" height="80">
-                <figcaption>disgust</figcaption>
-            </figure>
-        </div>
-            <h1 class="heading-primary"><span>Emotion</span></h1>
-            <p class="highlight">Computational Linguistic Team Lab Project</p>
-            <p class="highlight">Bandit</p>
-            <button id="recordBtn" class="btn btn--blue">Start Recording</button>
-            <button id="stopBtn" class="btn btn--blue" style="display: none;">Stop Recording</button>
-            <p id="status" style="margin-top: 10px;"></p>
-            <div id="audioControls" style="margin-top: 20px; display: none;">
-                <audio id="audioPlayer" controls style="width: 300px;"></audio>
-                <!--<div id="progressContainer" style="margin-top: 10px; width: 300px; background-color: #ddd; border-radius: 5px;">
-                    <div id="progressBar" style="height: 10px; background-color: #4CAF50; width: 0%; border-radius: 5px; transition: width 0.1s;"></div> -->
-                </div>
-            </div>
-        </div>
     </header>
 
-    <main role="main">
-        <section class="work" id="emotion">
-            <h2>Emotion</h2>
-            <div class="button-container">
-                <input type="file" id="audioFileInput" accept="audio/*" style="display: none;">
-                <button id="uploadBtn" class="btn">Upload File</button>
+    <main>
+        <!-- ---------------------------------------------------------------- -->
+        <!-- Predict Recording                                                  -->
+        <!-- ---------------------------------------------------------------- -->
+        <section class="page" data-page="record" aria-labelledby="record-title">
+            <div class="page__head">
+                <h1 class="page__title" id="record-title">Predict Recording</h1>
+                <p class="page__lead">Record a few seconds of speech and the model highlights the emotion it hears.</p>
             </div>
-            <div id="uploadStatus" style="margin-top: 10px;"></div>
+
+            <div class="emotions" id="recordEmotions" aria-label="Emotions"></div>
+
+            <div class="card stage">
+                <button class="btn btn--primary" id="recordBtn"><span class="dot"></span>Start Recording</button>
+                <button class="btn btn--danger" id="stopBtn" hidden><span class="dot"></span>Stop Recording</button>
+                <p class="status" id="recordStatus">Press the button and say a sentence with feeling.</p>
+                <p class="result" id="recordResult" hidden>Detected emotion: <strong></strong><small></small></p>
+                <audio id="recordPlayer" controls hidden></audio>
+            </div>
         </section>
 
-        <section class="work" id="about">
-            <h2>About</h2>
-            <p>
-                Record a few seconds of speech or upload an audio file, and the page sends it to
-                the local prediction server. Audio is classified by a DistilHuBERT model fine-tuned
-                on the RAVDESS dataset. Built for the Computational Linguistics Team Laboratory
-                (Phonetics) at the University of Stuttgart.
-            </p>
-            <a href="https://github.com/amnesiackid/automatic-speech-emotion-recognition-on-ravdess" class="btn">Source code</a>
-            <a href="https://huggingface.co/amnesiackid/distilhubert-finetuned-ravdess" class="btn">Model on Hugging Face</a>
+        <!-- ---------------------------------------------------------------- -->
+        <!-- Batch Prediction                                                   -->
+        <!-- ---------------------------------------------------------------- -->
+        <section class="page" data-page="batch" aria-labelledby="batch-title">
+            <div class="page__head">
+                <h1 class="page__title" id="batch-title">Batch Prediction</h1>
+                <p class="page__lead">Run the model over many clips at once and compare predictions with the true labels.</p>
+            </div>
+
+            <div class="choice-grid">
+                <button class="card choice" id="openSamples" type="button">
+                    <span class="choice__icon" aria-hidden="true">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12h2l2-7 3 14 3-10 2 6 2-3h4"/></svg>
+                    </span>
+                    <h3>Try testing on RAVDESS</h3>
+                    <p>Pick clips from the dataset on the server, filtered by emotion, actor or sentence, and see how often the model agrees with the label.</p>
+                    <span class="note" id="samplesNote">Loads the clips from the local dataset folder.</span>
+                </button>
+
+                <button class="card choice" id="openUpload" type="button">
+                    <span class="choice__icon" aria-hidden="true">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4m0 0l-4 4m4-4l4 4M4 16v3a1 1 0 001 1h14a1 1 0 001-1v-3"/></svg>
+                    </span>
+                    <h3>Upload your files</h3>
+                    <p>Choose several audio files or a single .zip archive from your computer. Files named the RAVDESS way are checked against their label automatically.</p>
+                    <span class="note">wav, mp3, flac, ogg, m4a, webm or zip</span>
+                </button>
+                <input type="file" id="uploadInput" multiple accept="audio/*,.zip,application/zip" hidden>
+            </div>
+
+            <div class="card results" id="batchResults" hidden>
+                <div class="results__head">
+                    <h3 id="batchTitle">Results</h3>
+                    <button class="btn btn--ghost btn--small" id="batchCancel" type="button">Stop</button>
+                </div>
+                <div class="progress" aria-hidden="true"><i id="batchProgress"></i></div>
+                <p class="status" id="batchStatus"></p>
+                <div class="summary">
+                    <div class="stat"><b id="statDone">0</b><span>predicted</span></div>
+                    <div class="stat"><b id="statCorrect">–</b><span>correct</span></div>
+                    <div class="stat"><b id="statAccuracy">–</b><span>accuracy</span></div>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>File</th>
+                                <th>True label</th>
+                                <th>Predicted</th>
+                                <th>Confidence</th>
+                                <th>Match</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody id="batchRows"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ---------------------------------------------------------------- -->
+        <!-- Game                                                               -->
+        <!-- ---------------------------------------------------------------- -->
+        <section class="page" data-page="game" aria-labelledby="game-title">
+            <div class="page__head">
+                <h1 class="page__title" id="game-title">Game</h1>
+                <p class="page__lead">Say the sentence with the emotion you are given. If the model hears the same emotion, you score.</p>
+            </div>
+
+            <div class="emotions" id="gameEmotions" aria-label="Emotions"></div>
+
+            <div class="card game">
+                <p class="eyebrow" id="gameRound">Round 1</p>
+                <p class="sentence" id="gameSentence">“Kids are talking by the door”</p>
+                <p class="target">say it as if you were <span class="chip" id="gameTarget"><img alt="" width="32" height="32"><span></span></span></p>
+
+                <button class="btn btn--primary" id="gameRecordBtn"><span class="dot"></span>Start Recording</button>
+                <button class="btn btn--danger" id="gameStopBtn" hidden><span class="dot"></span>Stop Recording</button>
+                <p class="status" id="gameStatus"></p>
+                <p class="verdict" id="gameVerdict"></p>
+
+                <div class="game__actions">
+                    <button class="btn btn--ghost btn--small" id="gameNext" type="button">Next sentence</button>
+                    <button class="btn btn--ghost btn--small" id="gameReset" type="button">Reset score</button>
+                </div>
+
+                <div class="scoreboard">
+                    <div class="stat"><b id="gameScore">0</b><span>score</span></div>
+                    <div class="stat"><b id="gameRounds">0</b><span>rounds</span></div>
+                    <div class="stat"><b id="gameStreak">0</b><span>streak</span></div>
+                    <div class="stat"><b id="gameBest">0</b><span>best streak</span></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ---------------------------------------------------------------- -->
+        <!-- About                                                              -->
+        <!-- ---------------------------------------------------------------- -->
+        <section class="page" data-page="about" aria-labelledby="about-title">
+            <div class="page__head">
+                <h1 class="page__title" id="about-title">About</h1>
+            </div>
+
+            <div class="card about">
+                <p>
+                    Record a few seconds of speech or upload an audio file, and the page sends it to
+                    the local prediction server. Audio is classified by a DistilHuBERT model fine-tuned
+                    on the RAVDESS dataset. Built for the Computational Linguistics Team Laboratory
+                    (Phonetics) at the University of Stuttgart.
+                </p>
+                <div class="about__links">
+                    <a class="btn btn--primary" href="https://github.com/amnesiackid/automatic-speech-emotion-recognition-on-ravdess">Source code</a>
+                    <a class="btn btn--ghost" href="https://huggingface.co/amnesiackid/distilhubert-finetuned-ravdess">Model on Hugging Face</a>
+                </div>
+                <div class="facts">
+                    <div class="fact"><b>8</b><span>emotions</span></div>
+                    <div class="fact"><b>86.8%</b><span>test accuracy</span></div>
+                    <div class="fact"><b>DistilHuBERT</b><span>fine-tuned backbone</span></div>
+                    <div class="fact"><b>RAVDESS</b><span>24 actors, 1440 clips</span></div>
+                </div>
+            </div>
         </section>
     </main>
 
-    <footer role="contentinfo" class="footer">
-        <p>
-            &copy; 2025 Feiyang Yang and Zhiyu Bao. Speech Emotion Recognition, CL Team Lab, University of Stuttgart.
-        </p>
+    <footer>
+        &copy; 2025 Feiyang Yang and Zhiyu Bao · Speech Emotion Recognition, CL Team Lab, University of Stuttgart
     </footer>
 
-    <a href="#top" class="back-to-top" title="Back to Top">
-        <span aria-hidden="true">&#8593;</span>
-    </a>
+    <!-- The "Try testing on RAVDESS" window -->
+    <dialog class="picker" id="samplePicker" aria-labelledby="picker-title">
+        <div class="picker__head">
+            <h3 id="picker-title">Choose clips from RAVDESS</h3>
+            <button class="close" id="pickerClose" type="button" aria-label="Close">&times;</button>
+        </div>
+        <div class="picker__filters" id="pickerFilters">
+            <label>Emotion <select id="filterEmotion"><option value="">All</option></select></label>
+            <label>Actor <select id="filterActor"><option value="">All</option></select></label>
+            <label>Sentence <select id="filterStatement"><option value="">All</option></select></label>
+            <label>Intensity <select id="filterIntensity"><option value="">All</option></select></label>
+        </div>
+        <div class="picker__list" id="pickerList"><p class="picker__empty">Loading…</p></div>
+        <div class="picker__foot">
+            <div class="group">
+                <button class="btn btn--ghost btn--small" id="pickShown" type="button">Select all shown</button>
+                <button class="btn btn--ghost btn--small" id="pickRandom" type="button">Random 10</button>
+                <button class="btn btn--ghost btn--small" id="pickNone" type="button">Clear</button>
+            </div>
+            <div class="group">
+                <span class="count" id="pickCount">0 selected</span>
+                <button class="btn btn--primary btn--small" id="pickRun" type="button" disabled>Run predictions</button>
+            </div>
+        </div>
+    </dialog>
+
     <script>
-        // When the page is served by the Flask app (python server/app.py) the API is same-origin.
-        // When opened directly from disk (file://) it falls back to the default local server.
+        'use strict';
+
+        // When served by the Flask app (python server/app.py) the API is same-origin.
+        // When the file is opened from disk it falls back to the default local server.
         const API_BASE = window.location.protocol.startsWith('http') ? '' : 'http://127.0.0.1:5000';
+        const SERVER_HINT = 'Is the server running? (python server/app.py)';
 
-        class EmotionDetector {
-            constructor() {
-                this.isRecording = false;
-                this.mediaRecorder = null;
-                this.audioChunks = [];
-                this.recordBtn = document.getElementById('recordBtn');
-                this.stopBtn = document.getElementById('stopBtn');
-                this.uploadBtn = document.getElementById('uploadBtn');
-                this.audioFileInput = document.getElementById('audioFileInput');
-                this.status = document.getElementById('status');
-                this.uploadStatus = document.getElementById('uploadStatus');
-                this.audioVisualizer = document.getElementById('audioControls');
-                this.emotionCards = document.querySelectorAll('.emotion');
-                
-                this.init();
+        // Mirrors ser.labels.LABELS (model order); each one has an images/<label>.png.
+        const EMOTIONS = ['neutral', 'calm', 'happy', 'sad', 'angry', 'fearful', 'disgust', 'surprised'];
+        // The two sentences every RAVDESS actor speaks.
+        const STATEMENTS = ['Kids are talking by the door', 'Dogs are sitting by the door'];
+        const AUDIO_EXT = /\.(wav|mp3|flac|ogg|oga|m4a|aac|webm|opus|mp4)$/i;
+        const RAVDESS_NAME = /^(\d{2})-(\d{2})-(\d{2})-(\d{2})-(\d{2})-(\d{2})-(\d{2})\.\w+$/;
+
+        const $ = (sel, root = document) => root.querySelector(sel);
+        const pct = (x) => `${(x * 100).toFixed(1)}%`;
+        const emotionImg = (e) => `images/${e}.png`;
+
+        /** Decode a RAVDESS-style file name; null for anything else. */
+        function parseRavdessName(name) {
+            const m = RAVDESS_NAME.exec(name.split('/').pop());
+            if (!m) return null;
+            const [emotion, intensity, statement, , actor] = m.slice(3).map(Number);
+            if (!EMOTIONS[emotion - 1] || !STATEMENTS[statement - 1]) return null;
+            return {
+                emotion: EMOTIONS[emotion - 1],
+                intensity: intensity === 2 ? 'strong' : 'normal',
+                statement: STATEMENTS[statement - 1],
+                actor,
+            };
+        }
+
+        function pill(emotion) {
+            if (!emotion) return '<span class="muted">–</span>';
+            const span = document.createElement('span');
+            span.className = 'pill';
+            span.style.setProperty('--emo', `var(--c-${emotion})`);
+            const img = document.createElement('img');
+            img.src = emotionImg(emotion);
+            img.alt = '';
+            span.append(img, emotion);
+            return span.outerHTML;
+        }
+
+        // ---------------------------------------------------------------- API
+
+        async function postPredict(formData) {
+            const r = await fetch(`${API_BASE}/predict`, { method: 'POST', body: formData });
+            if (!r.ok) {
+                let message = `Prediction request failed (${r.status})`;
+                try { message = (await r.json()).error || message; } catch (_) { /* not JSON */ }
+                throw new Error(message);
+            }
+            return r.json();
+        }
+
+        const api = {
+            predictBlob(blob, filename) {
+                const fd = new FormData();
+                fd.append('audio', blob, filename);
+                return postPredict(fd);
+            },
+            predictSample(id) {
+                const fd = new FormData();
+                fd.append('sample', id);
+                return postPredict(fd);
+            },
+            async listSamples() {
+                const r = await fetch(`${API_BASE}/samples`);
+                if (!r.ok) throw new Error(`Could not list samples (${r.status})`);
+                return r.json();
+            },
+            sampleUrl(id) {
+                return `${API_BASE}/samples/${id.split('/').map(encodeURIComponent).join('/')}`;
+            },
+        };
+
+        // ------------------------------------------------------------- Router
+
+        const PAGES = ['batch', 'record', 'game', 'about'];
+
+        function route() {
+            const hash = location.hash.replace('#', '');
+            const page = PAGES.includes(hash) ? hash : 'record';
+            document.querySelectorAll('.page').forEach((p) => p.classList.toggle('is-active', p.dataset.page === page));
+            document.querySelectorAll('.tab').forEach((t) => {
+                if (t.dataset.page === page) t.setAttribute('aria-current', 'page');
+                else t.removeAttribute('aria-current');
+            });
+            window.scrollTo({ top: 0, behavior: 'instant' });
+            document.dispatchEvent(new CustomEvent('pagechange', { detail: page }));
+        }
+
+        // -------------------------------------------------------- Emotion row
+
+        class EmotionRow {
+            constructor(container) {
+                this.el = container;
+                this.el.innerHTML = EMOTIONS.map((e) => `
+                    <figure class="emo" data-emotion="${e}" style="--emo: var(--c-${e})">
+                        <img class="emo__img" src="${emotionImg(e)}" alt="" width="72" height="72">
+                        <figcaption>${e}</figcaption>
+                        <span class="emo__bar"><i></i></span>
+                        <span class="emo__conf"></span>
+                    </figure>`).join('');
             }
 
-            init() {
-                this.recordBtn.addEventListener('click', () => this.startRecording());
-                this.stopBtn.addEventListener('click', () => this.stopRecording());
-                this.uploadBtn.addEventListener('click', () => this.triggerFileUpload());
-                this.audioFileInput.addEventListener('change', (e) => this.handleFileUpload(e));
-            }
-
-            triggerFileUpload() {
-                this.audioFileInput.click();
-            }
-
-            async handleFileUpload(event) {
-                const file = event.target.files[0];
-                if (!file) return;
-
-                // Validate file type
-                if (!file.type.startsWith('audio/')) {
-                    this.uploadStatus.textContent = 'Error: Please select an audio file';
-                    this.uploadStatus.style.color = 'red';
-                    return;
-                }
-
-                this.uploadStatus.textContent = `Processing ${file.name}...`;
-                this.uploadStatus.style.color = 'black';
-                this.clearEmotionHighlights();
-
-                try {
-                    // Convert file to buffer for processing
-                    const audioBuffer = await this.fileToArrayBuffer(file);
-                    
-                    // Detect emotion from uploaded file
-                    const emotion = await this.detectEmotionFromFile(file);
-                    
-                    // Highlight the detected emotion
-                    this.highlightEmotion(emotion);
-                    
-                } catch (error) {
-                    console.error('Error processing uploaded file:', error);
-                    this.uploadStatus.textContent = 'Error processing file';
-                    this.uploadStatus.style.color = 'red';
-                }
-            }
-
-            async fileToArrayBuffer(file) {
-                return new Promise((resolve, reject) => {
-                    const reader = new FileReader();
-                    reader.onload = () => resolve(reader.result);
-                    reader.onerror = reject;
-                    reader.readAsArrayBuffer(file);
-                });
-            }
-
-            async detectEmotionFromFile(file) {
-                try {
-                    const formData = new FormData();
-                    formData.append('audio', file);
-
-                    const response = await fetch(`${API_BASE}/predict`, {
-                        method: 'POST',
-                        body: formData,
-                    });
-
-                    if (!response.ok) {
-                        throw new Error(`Prediction request failed (${response.status})`);
-                    }
-
-                    const result = await response.json();
-
-                    return {
-                        emotion: result.emotion,
-                        confidence: result.confidence,
-                    };
-
-                } catch (error) {
-                    return this.serverUnavailable(error);
-                }
-            }
-
-            async startRecording() {
-                try {
-                    this.status.textContent = 'Requesting microphone access...';
-                    
-                    this.stream = await navigator.mediaDevices.getUserMedia({ 
-                        audio: {
-                            sampleRate: 16000,
-                            channelCount: 1,
-                            echoCancellation: true,
-                            noiseSuppression: true
-                        } 
-                    });
-                    
-                    this.mediaRecorder = new MediaRecorder(this.stream, {
-                        mimeType: 'audio/webm'
-                    });
-                    
-                    this.audioChunks = [];
-                    
-                    this.mediaRecorder.ondataavailable = (event) => {
-                        this.audioChunks.push(event.data);
-                    };
-                    
-                    this.mediaRecorder.onstop = () => {
-                        this.processAudio();
-                    };
-                    
-                    this.mediaRecorder.start();
-                    this.isRecording = true;
-                    
-                    this.recordBtn.style.display = 'none';
-                    this.stopBtn.style.display = 'inline-block';
-                    //this.audioVisualizer.style.display = 'flex';
-                    
-                    this.status.textContent = 'Recording... Speak now!';
-                    this.clearEmotionHighlights();
-                    
-                } catch (error) {
-                    console.error('Error accessing microphone:', error);
-                    this.status.textContent = 'Error: Could not access microphone';
-                }
-            }
-
-            stopRecording() {
-                if (this.mediaRecorder && this.isRecording) {
-                    this.mediaRecorder.stop();
-                    this.stream.getTracks().forEach(track => track.stop());
-                    
-                    this.isRecording = false;
-                    this.recordBtn.style.display = 'inline-block';
-                    this.stopBtn.style.display = 'none';
-                    this.audioVisualizer.style.display = 'none';
-                    
-                    this.status.innerHTML = '<div class="loading">Processing audio</div>';
-                }
-            }
-
-            async processAudio() {
-                try {
-                    const audioBlob = new Blob(this.audioChunks, { type: 'audio/webm' });
-                    
-                    // Convert to the format your model expects
-                    const audioBuffer = await this.convertAudioBlob(audioBlob);
-                    
-                    // Send to your emotion detection model
-                    const emotion = await this.detectEmotion(audioBuffer);
-                    
-                    // Highlight the detected emotion
-                    this.highlightEmotion(emotion);
-                    
-                } catch (error) {
-                    console.error('Error processing audio:', error);
-                    this.status.textContent = 'Error processing audio';
-                }
-            }
-
-            async convertAudioBlob(blob) {
-                return new Promise((resolve, reject) => {
-                    const reader = new FileReader();
-                    reader.onload = () => {
-                        const arrayBuffer = reader.result;
-                        resolve(arrayBuffer);
-                    };
-                    reader.onerror = reject;
-                    reader.readAsArrayBuffer(blob);
-                });
-            }
-
-            async detectEmotion(audioBuffer) {
-                try {
-                    const formData = new FormData();
-                    const audioBlob = new Blob([audioBuffer], { type: 'audio/webm' });
-                    formData.append('audio', audioBlob, 'recording.webm');
-
-                    const response = await fetch(`${API_BASE}/predict`, {
-                        method: 'POST',
-                        body: formData,
-                    });
-
-                    if (!response.ok) {
-                        throw new Error(`Prediction request failed (${response.status})`);
-                    }
-
-                    const result = await response.json();
-
-                    return {
-                        emotion: result.emotion,
-                        confidence: result.confidence,
-                    };
-
-                } catch (error) {
-                    return this.serverUnavailable(error);
-                }
-            }
-
-            serverUnavailable(error) {
-                console.error('Error calling the prediction server:', error);
-                this.status.textContent =
-                    'Could not get a prediction. Is the server running? (python server/app.py)';
-                return null;
-            }
-
-            highlightEmotion(result) {
-                this.clearEmotionHighlights();
-                if (!result) {
-                    return;
-                }
-
-                const emotionCard = document.querySelector(`[data-emotion="${result.emotion}"]`);
-                if (emotionCard) {
-                    emotionCard.classList.add('active');
-                    
-                    const confidenceElement = emotionCard.querySelector('.confidence');
-                    if (confidenceElement && result.confidence) {
-                        confidenceElement.textContent = `${(result.confidence * 100).toFixed(1)}%`;
+            /** Highlight the predicted emotion and show every label's probability bar. */
+            show(result) {
+                this.clear();
+                if (!result) return;
+                this.el.classList.add('is-dimmed');
+                for (const fig of this.el.querySelectorAll('.emo')) {
+                    const e = fig.dataset.emotion;
+                    const p = result.probabilities?.[e] ?? (e === result.emotion ? result.confidence : 0);
+                    fig.querySelector('.emo__bar i').style.width = `${p * 100}%`;
+                    if (e === result.emotion) {
+                        fig.classList.add('is-active');
+                        fig.querySelector('.emo__conf').textContent = pct(result.confidence);
                     }
                 }
-                
-                this.status.textContent = `Detected emotion: ${result.emotion.charAt(0).toUpperCase() + result.emotion.slice(1)}`;
             }
 
-            clearEmotionHighlights() {
-                this.emotionCards.forEach(card => {
-                    card.classList.remove('active');
-                    const confidenceElement = card.querySelector('.confidence');
-                    if (confidenceElement) {
-                        confidenceElement.textContent = '';
-                    }
-                });
+            clear() {
+                this.el.classList.remove('is-dimmed');
+                for (const fig of this.el.querySelectorAll('.emo')) {
+                    fig.classList.remove('is-active');
+                    fig.querySelector('.emo__bar i').style.width = '0';
+                    fig.querySelector('.emo__conf').textContent = '';
+                }
             }
         }
 
-        // Initialize the emotion detector when the page loads
+        // ---------------------------------------------------------- Recorder
+
+        class Recorder {
+            constructor() {
+                this.mediaRecorder = null;
+                this.stream = null;
+                this.chunks = [];
+            }
+
+            get isRecording() {
+                return !!this.mediaRecorder && this.mediaRecorder.state === 'recording';
+            }
+
+            static mimeType() {
+                const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'];
+                return candidates.find((t) => window.MediaRecorder?.isTypeSupported(t)) || '';
+            }
+
+            async start() {
+                if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+                    throw new Error('This browser cannot record audio.');
+                }
+                this.stream = await navigator.mediaDevices.getUserMedia({
+                    audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+                });
+                const mimeType = Recorder.mimeType();
+                this.mediaRecorder = new MediaRecorder(this.stream, mimeType ? { mimeType } : undefined);
+                this.chunks = [];
+                this.mediaRecorder.ondataavailable = (e) => { if (e.data.size) this.chunks.push(e.data); };
+                this.mediaRecorder.start();
+            }
+
+            /** Stop and resolve with {blob, filename}, or null if nothing was recording. */
+            stop() {
+                return new Promise((resolve) => {
+                    const mr = this.mediaRecorder;
+                    if (!mr || mr.state === 'inactive') { resolve(null); return; }
+                    mr.onstop = () => {
+                        this.releaseStream();
+                        const type = mr.mimeType || 'audio/webm';
+                        const ext = type.includes('mp4') ? 'mp4' : type.includes('ogg') ? 'ogg' : 'webm';
+                        this.mediaRecorder = null;
+                        resolve({ blob: new Blob(this.chunks, { type }), filename: `recording.${ext}` });
+                    };
+                    mr.stop();
+                });
+            }
+
+            cancel() {
+                if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
+                    this.mediaRecorder.onstop = null;
+                    this.mediaRecorder.stop();
+                }
+                this.mediaRecorder = null;
+                this.releaseStream();
+            }
+
+            releaseStream() {
+                this.stream?.getTracks().forEach((t) => t.stop());
+                this.stream = null;
+            }
+        }
+
+        /**
+         * Wire a start/stop button pair to a Recorder. `onRecording(audio, setStatus)` is
+         * awaited with the finished clip; the buttons stay disabled until it resolves.
+         */
+        function wireRecordControls({ startBtn, stopBtn, status, onRecording }) {
+            const recorder = new Recorder();
+            const setStatus = (msg, isError = false) => {
+                status.textContent = msg;
+                status.classList.toggle('is-error', isError);
+            };
+            const showIdle = () => { stopBtn.hidden = true; startBtn.hidden = false; };
+
+            startBtn.addEventListener('click', async () => {
+                try {
+                    setStatus('Requesting microphone access…');
+                    await recorder.start();
+                    startBtn.hidden = true;
+                    stopBtn.hidden = false;
+                    setStatus('Recording… speak now, then press stop.');
+                } catch (err) {
+                    console.error(err);
+                    const denied = err.name === 'NotAllowedError' || err.name === 'SecurityError';
+                    setStatus(denied ? 'Microphone access was denied.' : `Could not start recording: ${err.message}`, true);
+                }
+            });
+
+            stopBtn.addEventListener('click', async () => {
+                stopBtn.disabled = true;
+                const audio = await recorder.stop();
+                stopBtn.disabled = false;
+                showIdle();
+                if (!audio) return;
+                startBtn.disabled = true;
+                setStatus('Analysing your voice…');
+                try {
+                    await onRecording(audio, setStatus);
+                } finally {
+                    startBtn.disabled = false;
+                }
+            });
+
+            return {
+                cancel() {
+                    if (!recorder.isRecording) return;
+                    recorder.cancel();
+                    showIdle();
+                    setStatus('');
+                },
+            };
+        }
+
+        // ------------------------------------------------- Predict Recording
+
+        function initRecordPage() {
+            const row = new EmotionRow($('#recordEmotions'));
+            const result = $('#recordResult');
+            const player = $('#recordPlayer');
+
+            const controls = wireRecordControls({
+                startBtn: $('#recordBtn'),
+                stopBtn: $('#stopBtn'),
+                status: $('#recordStatus'),
+                async onRecording(audio, setStatus) {
+                    row.clear();
+                    result.hidden = true;
+                    if (player.src) URL.revokeObjectURL(player.src);
+                    player.src = URL.createObjectURL(audio.blob);
+                    player.hidden = false;
+                    try {
+                        const res = await api.predictBlob(audio.blob, audio.filename);
+                        row.show(res);
+                        result.querySelector('strong').textContent = res.emotion;
+                        result.querySelector('small').textContent = `${pct(res.confidence)} confidence`;
+                        result.hidden = false;
+                        setStatus('Record again to try another emotion.');
+                    } catch (err) {
+                        console.error(err);
+                        setStatus(`Could not get a prediction. ${SERVER_HINT}`, true);
+                    }
+                },
+            });
+
+            document.addEventListener('pagechange', (e) => { if (e.detail !== 'record') controls.cancel(); });
+        }
+
+        // --------------------------------------------------- Batch Prediction
+
+        function initBatchPage() {
+            const panel = $('#batchResults');
+            const rows = $('#batchRows');
+            const progress = $('#batchProgress');
+            const status = $('#batchStatus');
+            const player = new Audio();
+            let cancelled = false;
+
+            // ---- running a list of jobs: {name, truth, predict(), audioUrl()} ----
+            async function runBatch(title, jobs) {
+                cancelled = false;
+                $('#batchTitle').textContent = title;
+                $('#batchCancel').hidden = false;
+                rows.innerHTML = '';
+                progress.style.width = '0%';
+                panel.hidden = false;
+                panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+                let done = 0;
+                let correct = 0;
+                let labelled = 0;
+                const setStats = () => {
+                    $('#statDone').textContent = `${done} / ${jobs.length}`;
+                    $('#statCorrect').textContent = labelled ? `${correct} / ${labelled}` : '–';
+                    $('#statAccuracy').textContent = labelled ? pct(correct / labelled) : '–';
+                };
+                setStats();
+
+                for (const job of jobs) {
+                    if (cancelled) break;
+                    status.textContent = `Predicting ${job.name}…`;
+                    status.classList.remove('is-error');
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `<td class="file" title="${job.name}">${job.name}</td>
+                        <td>${pill(job.truth)}</td><td class="muted">…</td><td class="num"></td><td></td><td></td>`;
+                    rows.append(tr);
+                    try {
+                        const res = await job.predict();
+                        const cells = tr.children;
+                        cells[2].innerHTML = pill(res.emotion);
+                        cells[3].textContent = pct(res.confidence);
+                        if (job.truth) {
+                            labelled += 1;
+                            const hit = res.emotion === job.truth;
+                            if (hit) correct += 1;
+                            cells[4].innerHTML = `<span class="match ${hit ? 'ok' : 'no'}">${hit ? '✓' : '✗'}</span>`;
+                        }
+                        const play = document.createElement('button');
+                        play.className = 'play';
+                        play.type = 'button';
+                        play.title = 'Play';
+                        play.innerHTML = '<svg width="12" height="12" viewBox="0 0 12 12"><path d="M3 2l7 4-7 4z" fill="currentColor"/></svg>';
+                        play.addEventListener('click', () => { player.src = job.audioUrl(); player.play(); });
+                        cells[5].append(play);
+                    } catch (err) {
+                        console.error(err);
+                        tr.children[2].innerHTML = `<span class="match no">error</span>`;
+                        tr.children[3].textContent = '';
+                        if (/failed to fetch|networkerror/i.test(err.message)) {
+                            status.textContent = `Could not reach the prediction server. ${SERVER_HINT}`;
+                            status.classList.add('is-error');
+                            break;
+                        }
+                    }
+                    done += 1;
+                    progress.style.width = `${(done / jobs.length) * 100}%`;
+                    setStats();
+                }
+
+                $('#batchCancel').hidden = true;
+                if (!status.classList.contains('is-error')) {
+                    status.textContent = cancelled
+                        ? `Stopped after ${done} of ${jobs.length} files.`
+                        : `Done. ${done} file${done === 1 ? '' : 's'} predicted.`;
+                }
+            }
+
+            $('#batchCancel').addEventListener('click', () => { cancelled = true; });
+
+            // ---- "Upload your files" ----
+            const upload = $('#uploadInput');
+            $('#openUpload').addEventListener('click', () => upload.click());
+            upload.addEventListener('change', async () => {
+                const picked = [...upload.files];
+                upload.value = '';
+                if (!picked.length) return;
+                let files;
+                try {
+                    files = await expandUploads(picked);
+                } catch (err) {
+                    panel.hidden = false;
+                    status.textContent = err.message;
+                    status.classList.add('is-error');
+                    return;
+                }
+                if (!files.length) {
+                    panel.hidden = false;
+                    status.textContent = 'No audio files found in the selection.';
+                    status.classList.add('is-error');
+                    return;
+                }
+                const jobs = files.map((f) => ({
+                    name: f.name,
+                    truth: parseRavdessName(f.name)?.emotion ?? null,
+                    predict: () => api.predictBlob(f, f.name),
+                    audioUrl: () => URL.createObjectURL(f),
+                }));
+                runBatch('Your files', jobs);
+            });
+
+            /** Flatten the selection: audio files as-is, zip archives unpacked in the browser. */
+            async function expandUploads(picked) {
+                const out = [];
+                for (const f of picked) {
+                    if (/\.zip$/i.test(f.name) || f.type === 'application/zip') {
+                        if (!window.JSZip) {
+                            throw new Error('Zip support needs the JSZip script, which could not be loaded. Upload the audio files individually instead.');
+                        }
+                        const zip = await JSZip.loadAsync(f);
+                        for (const entry of Object.values(zip.files)) {
+                            const base = entry.name.split('/').pop();
+                            if (entry.dir || !AUDIO_EXT.test(base) || entry.name.includes('__MACOSX') || base.startsWith('.')) continue;
+                            out.push(new File([await entry.async('blob')], base));
+                        }
+                    } else if (f.type.startsWith('audio/') || AUDIO_EXT.test(f.name)) {
+                        out.push(f);
+                    }
+                }
+                return out;
+            }
+
+            // ---- "Try testing on RAVDESS" ----
+            const dialog = $('#samplePicker');
+            const list = $('#pickerList');
+            const count = $('#pickCount');
+            const runBtn = $('#pickRun');
+            const filters = {
+                emotion: $('#filterEmotion'),
+                actor: $('#filterActor'),
+                statement: $('#filterStatement'),
+                intensity: $('#filterIntensity'),
+            };
+            let samples = null;        // all clips from /samples
+            let shown = [];            // clips matching the filters
+            const selected = new Set(); // ids
+
+            const addOptions = (select, values) => {
+                for (const v of values) {
+                    const opt = document.createElement('option');
+                    opt.value = String(v);
+                    opt.textContent = String(v);
+                    select.append(opt);
+                }
+            };
+
+            async function openPicker() {
+                if (typeof dialog.showModal !== 'function') {
+                    alert('Your browser does not support the sample picker window.');
+                    return;
+                }
+                dialog.showModal();
+                if (samples) return;
+                list.innerHTML = '<p class="picker__empty">Loading clips…</p>';
+                try {
+                    const data = await api.listSamples();
+                    if (!data.available) {
+                        list.innerHTML = `<p class="picker__empty">No RAVDESS dataset is configured on the server.<br><small>${data.hint}</small></p>`;
+                        $('#samplesNote').textContent = 'Set RAVDESS_DIR on the server to enable this.';
+                        return;
+                    }
+                    samples = data.samples;
+                    addOptions(filters.emotion, EMOTIONS.filter((e) => samples.some((s) => s.emotion === e)));
+                    addOptions(filters.actor, [...new Set(samples.map((s) => s.actor))].sort((a, b) => a - b));
+                    addOptions(filters.statement, STATEMENTS.filter((st) => samples.some((s) => s.statement === st)));
+                    addOptions(filters.intensity, ['normal', 'strong'].filter((i) => samples.some((s) => s.intensity === i)));
+                    $('#samplesNote').textContent = `${samples.length} clips available on the server.`;
+                    renderList();
+                } catch (err) {
+                    console.error(err);
+                    list.innerHTML = `<p class="picker__empty">Could not load the clip list. ${SERVER_HINT}</p>`;
+                }
+            }
+
+            function renderList() {
+                shown = samples.filter((s) =>
+                    (!filters.emotion.value || s.emotion === filters.emotion.value)
+                    && (!filters.actor.value || String(s.actor) === filters.actor.value)
+                    && (!filters.statement.value || s.statement === filters.statement.value)
+                    && (!filters.intensity.value || s.intensity === filters.intensity.value));
+                if (!shown.length) {
+                    list.innerHTML = '<p class="picker__empty">No clips match these filters.</p>';
+                    updateCount();
+                    return;
+                }
+                list.innerHTML = shown.map((s) => `
+                    <label class="sample">
+                        <input type="checkbox" value="${s.id}" ${selected.has(s.id) ? 'checked' : ''}>
+                        <code>${s.name}</code>
+                        ${pill(s.emotion)}
+                        <span class="meta">actor ${s.actor} · ${s.intensity} · “${s.statement.split(' ')[0]}…”</span>
+                    </label>`).join('');
+                updateCount();
+            }
+
+            function updateCount() {
+                count.textContent = `${selected.size} selected`;
+                runBtn.disabled = selected.size === 0;
+            }
+
+            list.addEventListener('change', (e) => {
+                if (e.target.type !== 'checkbox') return;
+                if (e.target.checked) selected.add(e.target.value); else selected.delete(e.target.value);
+                updateCount();
+            });
+            Object.values(filters).forEach((sel) => sel.addEventListener('change', () => samples && renderList()));
+
+            $('#pickShown').addEventListener('click', () => {
+                const allChecked = shown.every((s) => selected.has(s.id));
+                shown.forEach((s) => (allChecked ? selected.delete(s.id) : selected.add(s.id)));
+                renderList();
+            });
+            $('#pickRandom').addEventListener('click', () => {
+                const pool = [...shown];
+                for (let i = pool.length - 1; i > 0; i -= 1) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [pool[i], pool[j]] = [pool[j], pool[i]];
+                }
+                pool.slice(0, 10).forEach((s) => selected.add(s.id));
+                renderList();
+            });
+            $('#pickNone').addEventListener('click', () => { selected.clear(); renderList(); });
+            $('#pickerClose').addEventListener('click', () => dialog.close());
+            dialog.addEventListener('click', (e) => { if (e.target === dialog) dialog.close(); });
+
+            runBtn.addEventListener('click', () => {
+                const chosen = samples.filter((s) => selected.has(s.id));
+                dialog.close();
+                runBatch(`RAVDESS · ${chosen.length} clip${chosen.length === 1 ? '' : 's'}`, chosen.map((s) => ({
+                    name: s.name,
+                    truth: s.emotion,
+                    predict: () => api.predictSample(s.id),
+                    audioUrl: () => api.sampleUrl(s.id),
+                })));
+            });
+
+            $('#openSamples').addEventListener('click', openPicker);
+        }
+
+        // --------------------------------------------------------------- Game
+
+        function initGamePage() {
+            const STORAGE_KEY = 'ser-game-score';
+            const row = new EmotionRow($('#gameEmotions'));
+            const verdict = $('#gameVerdict');
+            const target = $('#gameTarget');
+            let state = { score: 0, rounds: 0, best: 0 };
+            let streak = 0;
+            let current = null;
+
+            try {
+                state = { ...state, ...JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') };
+            } catch (_) { /* fresh start */ }
+
+            const save = () => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (_) { /* ignore */ } };
+
+            function renderScore() {
+                $('#gameScore').textContent = state.score;
+                $('#gameRounds').textContent = state.rounds;
+                $('#gameStreak').textContent = streak;
+                $('#gameBest').textContent = state.best;
+            }
+
+            function newRound() {
+                let emotion;
+                do { emotion = EMOTIONS[Math.floor(Math.random() * EMOTIONS.length)]; } while (current && emotion === current.emotion);
+                current = { emotion, sentence: STATEMENTS[Math.floor(Math.random() * STATEMENTS.length)] };
+                $('#gameRound').textContent = `Round ${state.rounds + 1}`;
+                $('#gameSentence').textContent = `“${current.sentence}”`;
+                target.style.setProperty('--emo', `var(--c-${emotion})`);
+                target.querySelector('img').src = emotionImg(emotion);
+                target.querySelector('span').textContent = emotion;
+                verdict.textContent = '';
+                verdict.className = 'verdict';
+                $('#gameStatus').textContent = '';
+                row.clear();
+            }
+
+            const controls = wireRecordControls({
+                startBtn: $('#gameRecordBtn'),
+                stopBtn: $('#gameStopBtn'),
+                status: $('#gameStatus'),
+                async onRecording(audio, setStatus) {
+                    row.clear();
+                    try {
+                        const res = await api.predictBlob(audio.blob, audio.filename);
+                        row.show(res);
+                        state.rounds += 1;
+                        const hit = res.emotion === current.emotion;
+                        if (hit) {
+                            state.score += 1;
+                            streak += 1;
+                            state.best = Math.max(state.best, streak);
+                            verdict.textContent = `Scored! The model heard ${res.emotion}.`;
+                            verdict.className = 'verdict ok';
+                            setStatus('Press “Next sentence” for a new round.');
+                        } else {
+                            streak = 0;
+                            verdict.textContent = `The model heard ${res.emotion}, not ${current.emotion}.`;
+                            verdict.className = 'verdict no';
+                            setStatus('Record again to retry, or move on to the next sentence.');
+                        }
+                        save();
+                        renderScore();
+                    } catch (err) {
+                        console.error(err);
+                        setStatus(`Could not get a prediction. ${SERVER_HINT}`, true);
+                    }
+                },
+            });
+
+            $('#gameNext').addEventListener('click', () => { controls.cancel(); newRound(); });
+            $('#gameReset').addEventListener('click', () => {
+                state = { score: 0, rounds: 0, best: 0 };
+                streak = 0;
+                save();
+                renderScore();
+                newRound();
+            });
+            document.addEventListener('pagechange', (e) => { if (e.detail !== 'game') controls.cancel(); });
+
+            renderScore();
+            newRound();
+        }
+
+        // --------------------------------------------------------------- Boot
+
         document.addEventListener('DOMContentLoaded', () => {
-            new EmotionDetector();
+            initRecordPage();
+            initBatchPage();
+            initGamePage();
+            window.addEventListener('hashchange', route);
+            route();
         });
     </script>
 </body>
-
 </html>

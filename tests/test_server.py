@@ -100,3 +100,81 @@ def test_predict_model_error_returns_500(client, mock_clf, tmp_path):
 
     assert r.status_code == 500
     assert r.get_json() == {"error": "Prediction failed"}
+
+
+# ── RAVDESS sample endpoints ──────────────────────────────────────────────────
+
+
+@pytest.fixture
+def ravdess_dir(tmp_path, monkeypatch):
+    """A tiny fake RAVDESS folder with the standard Actor_XX layout."""
+    actor = tmp_path / "Actor_01"
+    actor.mkdir()
+    _make_wav(str(actor / "03-01-03-01-01-01-01.wav"))  # happy
+    _make_wav(str(actor / "03-01-04-01-02-01-01.wav"))  # sad
+    _make_wav(str(actor / "notes.wav"))  # not a RAVDESS name: must be skipped
+    monkeypatch.setenv("RAVDESS_DIR", str(tmp_path))
+    return tmp_path
+
+
+def test_samples_unavailable_without_dataset(client, monkeypatch):
+    monkeypatch.delenv("RAVDESS_DIR", raising=False)
+    r = client.get("/samples")
+    assert r.status_code == 200
+    data = r.get_json()
+    assert data["available"] is False
+    assert data["samples"] == []
+    assert "RAVDESS_DIR" in data["hint"]
+
+
+def test_samples_unavailable_with_missing_folder(client, monkeypatch, tmp_path):
+    monkeypatch.setenv("RAVDESS_DIR", str(tmp_path / "nope"))
+    assert client.get("/samples").get_json()["available"] is False
+
+
+def test_samples_lists_parsed_clips(client, ravdess_dir):
+    data = client.get("/samples").get_json()
+    assert data["available"] is True
+    ids = [s["id"] for s in data["samples"]]
+    assert ids == ["Actor_01/03-01-03-01-01-01-01.wav", "Actor_01/03-01-04-01-02-01-01.wav"]
+    happy = data["samples"][0]
+    assert happy["emotion"] == "happy"
+    assert happy["actor"] == 1
+    assert happy["statement"] == "Kids are talking by the door"
+
+
+def test_sample_audio_is_served(client, ravdess_dir):
+    r = client.get("/samples/Actor_01/03-01-03-01-01-01-01.wav")
+    assert r.status_code == 200
+    assert r.data[:4] == b"RIFF"
+    assert client.get("/samples/Actor_01/missing.wav").status_code == 404
+    assert client.get("/samples/../secret.wav").status_code == 404
+
+
+def test_predict_sample(client, mock_clf, ravdess_dir):
+    r = client.post(
+        "/predict",
+        data={"sample": "Actor_01/03-01-04-01-02-01-01.wav"},
+        content_type="multipart/form-data",
+    )
+    assert r.status_code == 200
+    assert r.get_json()["emotion"] == "happy"
+    called_path = mock_clf.call_args.args[0]
+    assert called_path.endswith("03-01-04-01-02-01-01.wav")
+
+
+def test_predict_unknown_sample(client, mock_clf, ravdess_dir):
+    r = client.post(
+        "/predict", data={"sample": "Actor_01/nope.wav"}, content_type="multipart/form-data"
+    )
+    assert r.status_code == 404
+    mock_clf.assert_not_called()
+
+
+def test_predict_sample_without_dataset(client, monkeypatch):
+    monkeypatch.delenv("RAVDESS_DIR", raising=False)
+    r = client.post(
+        "/predict", data={"sample": "x.wav"}, content_type="multipart/form-data"
+    )
+    assert r.status_code == 404
+    assert "RAVDESS_DIR" in r.get_json()["hint"]

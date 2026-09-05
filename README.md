@@ -83,12 +83,31 @@ pip install -e ".[server]"
 python server/app.py
 ```
 
-Open <http://localhost:5000>. The page lets you record from the microphone or upload a file and
-highlights the predicted emotion. The same server exposes a small JSON API:
+Open <http://localhost:5000>. The demo has four pages:
+
+- **Predict Recording** records from the microphone and highlights the predicted emotion.
+- **Batch Prediction** runs the model over many clips: either files or a `.zip` from your computer
+  (unpacked in the browser), or clips picked from a local copy of RAVDESS on the server, filtered
+  by emotion, actor, sentence or intensity. Predictions are compared with the true label whenever
+  the file name follows the RAVDESS convention, and the accuracy is shown.
+- **Game** shows one of the two RAVDESS sentences and an emotion; say it that way and score a
+  point when the model agrees.
+- **About** links the source code and the model.
+
+To enable "Try testing on RAVDESS", point the server at a folder with the RAVDESS `.wav` files
+(any layout, searched recursively) before starting it:
+
+```bash
+RAVDESS_DIR=/path/to/RAVDESS python server/app.py
+```
+
+The same server exposes a small JSON API:
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `POST` | `/predict` | multipart form with an `audio` file; returns `emotion`, `confidence`, `probabilities` |
+| `POST` | `/predict` | multipart form with an `audio` file, or a `sample` id from `/samples`; returns `emotion`, `confidence`, `probabilities` |
+| `GET` | `/samples` | clips found under `RAVDESS_DIR` with their decoded metadata (`available: false` when unset) |
+| `GET` | `/samples/<id>` | stream one of those clips |
 | `GET` | `/emotions` | the eight labels in model order |
 | `GET` | `/health` | liveness check |
 
@@ -96,11 +115,11 @@ highlights the predicted emotion. The same server exposes a small JSON API:
 curl -X POST http://localhost:5000/predict -F "audio=@speech.wav"
 ```
 
-Docker:
+Docker (mount the dataset only if you want the RAVDESS picker):
 
 ```bash
 docker build -t ser-api .
-docker run -p 5000:5000 ser-api
+docker run -p 5000:5000 -v /path/to/RAVDESS:/data -e RAVDESS_DIR=/data ser-api
 ```
 
 ## Training and evaluation

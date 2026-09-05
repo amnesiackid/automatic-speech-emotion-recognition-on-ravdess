@@ -26,6 +26,7 @@ tested on 3.11.
 ```bash
 ser-predict path/to/audio.wav        # CLI (same as: python -m ser.predict ...)
 python server/app.py                 # Flask API + web demo on http://localhost:5000
+RAVDESS_DIR=/path/to/RAVDESS python server/app.py   # also enables the dataset picker in the demo
 pytest                               # tests; the model is mocked, no GPU or internet needed
 ruff check .                         # lint
 docker build -t ser-api . && docker run -p 5000:5000 ser-api
@@ -66,12 +67,23 @@ Background: the published model collapses to calm / disgust / fearful on noisy m
 bug; the augmentation recipe above is the fix, and any new checkpoint should be judged by the
 `--robustness` table, not the clean accuracy alone.
 
-**`server/app.py`** is the Flask app. It imports `classify` and `get_classifier` from `ser.predict`
-and serves `frontend/` as static files at `/`. Tests patch `server.app.get_classifier`.
+**`src/ser/ravdess.py`** decodes RAVDESS file names (`03-01-05-01-02-01-12.wav` ->
+emotion, intensity, statement, actor) with `parse_filename`; the emotion code maps through
+`ID2LABEL`. `STATEMENTS` holds the two sentences of the corpus.
 
-**`frontend/index.html`** is a self-contained page (all CSS/JS inline). `API_BASE` is empty when
-served by Flask and falls back to `http://127.0.0.1:5000` when opened from disk. Images live in
-`frontend/images/<label>.png` with the canonical label names.
+**`server/app.py`** is the Flask app. It imports `classify` and `get_classifier` from `ser.predict`
+and serves `frontend/` as static files at `/`. `POST /predict` takes either an `audio` upload or a
+`sample` id; `GET /samples` and `GET /samples/<id>` expose a local RAVDESS copy located by the
+`RAVDESS_DIR` environment variable (read per request, so tests set it with `monkeypatch`). Without
+it the sample endpoints answer `available: false` and nothing else changes. Tests patch
+`server.app.get_classifier`.
+
+**`frontend/index.html`** is a self-contained single page (all CSS/JS inline) with four hash-routed
+views: `#record` (default), `#batch`, `#game`, `#about`. `API_BASE` is empty when served by Flask
+and falls back to `http://127.0.0.1:5000` when opened from disk. The `EMOTIONS` array mirrors
+`ser.labels.LABELS` and the images live in `frontend/images/<label>.png` with the canonical label
+names. Zip uploads are unpacked in the browser with JSZip (cdnjs) so the server only ever sees
+single audio files; the Game score is kept in `localStorage`.
 
 **`experiments/baseline_cnn/`** has the Keras baseline: `features.py` (ZCR + RMS + MFCC, 2376-dim),
 `model.py`, `predict.py`, the committed weights and `emotion_categories.json` (alphabetical label
