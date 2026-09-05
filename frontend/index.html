@@ -976,10 +976,42 @@
 
         // ---------------------------------------------------------- Recorder
 
+        // One microphone stream shared by every recorder on the page. It is opened on the
+        // first recording and kept open, so the browser asks for permission once. Stopping
+        // the tracks after every clip (the previous behaviour) made the browser prompt again
+        // for each recording, especially when the page is opened from disk (file://).
+        let micStream = null;
+
+        async function getMicStream() {
+            if (micStream && micStream.getTracks().some((t) => t.readyState === 'live')) {
+                return micStream;
+            }
+            // Raw capture: the browser's call-oriented processing (noise suppression,
+            // echo cancellation, automatic gain) removes breathy and low-energy cues the
+            // model relies on, and the model is trained with noise anyway.
+            micStream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    channelCount: 1,
+                    echoCancellation: false,
+                    noiseSuppression: false,
+                    autoGainControl: false,
+                },
+            });
+            // If the device goes away (unplugged, revoked), forget the stream so the next
+            // recording requests a fresh one instead of failing silently.
+            micStream.getTracks().forEach((t) => { t.onended = () => { micStream = null; }; });
+            return micStream;
+        }
+
+        function releaseMicStream() {
+            micStream?.getTracks().forEach((t) => t.stop());
+            micStream = null;
+        }
+        window.addEventListener('pagehide', releaseMicStream);
+
         class Recorder {
             constructor() {
                 this.mediaRecorder = null;
-                this.stream = null;
                 this.chunks = [];
             }
 
@@ -996,11 +1028,9 @@
                 if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
                     throw new Error('This browser cannot record audio.');
                 }
-                this.stream = await navigator.mediaDevices.getUserMedia({
-                    audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
-                });
+                const stream = await getMicStream();
                 const mimeType = Recorder.mimeType();
-                this.mediaRecorder = new MediaRecorder(this.stream, mimeType ? { mimeType } : undefined);
+                this.mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
                 this.chunks = [];
                 this.mediaRecorder.ondataavailable = (e) => { if (e.data.size) this.chunks.push(e.data); };
                 this.mediaRecorder.start();
@@ -1012,7 +1042,6 @@
                     const mr = this.mediaRecorder;
                     if (!mr || mr.state === 'inactive') { resolve(null); return; }
                     mr.onstop = () => {
-                        this.releaseStream();
                         const type = mr.mimeType || 'audio/webm';
                         const ext = type.includes('mp4') ? 'mp4' : type.includes('ogg') ? 'ogg' : 'webm';
                         this.mediaRecorder = null;
@@ -1028,12 +1057,6 @@
                     this.mediaRecorder.stop();
                 }
                 this.mediaRecorder = null;
-                this.releaseStream();
-            }
-
-            releaseStream() {
-                this.stream?.getTracks().forEach((t) => t.stop());
-                this.stream = null;
             }
         }
 

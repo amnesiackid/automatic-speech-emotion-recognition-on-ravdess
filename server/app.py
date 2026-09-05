@@ -15,17 +15,23 @@ Set the ``RAVDESS_DIR`` environment variable to a folder containing RAVDESS
 ``.wav`` files (any layout, searched recursively) to enable the "Try testing on
 RAVDESS" feature of the web demo. Without it the sample endpoints report that no
 dataset is available and the rest of the API works as before.
+
+Set ``SER_SAVE_UPLOADS`` to a folder to keep a copy of every uploaded recording,
+named after the predicted emotion, for debugging what the model receives.
 """
 
 import logging
 import os
+import shutil
 import tempfile
+from datetime import datetime
 from pathlib import Path
 
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 from werkzeug.utils import safe_join
 
+from ser import predict as predict_module
 from ser.labels import LABELS
 from ser.predict import MODEL_ID, classify, get_classifier
 from ser.ravdess import parse_filename
@@ -77,7 +83,9 @@ def predict():
             audio_file.save(tmp.name)
             tmp_path = tmp.name
         try:
-            return _classify(tmp_path, audio_file.filename)
+            response = _classify(tmp_path, audio_file.filename)
+            _save_upload(tmp_path, suffix, response)
+            return response
         finally:
             os.unlink(tmp_path)
 
@@ -100,6 +108,27 @@ def _classify(path: str, name: str | None):
     except Exception:
         logger.exception("Prediction failed for %s", name)
         return jsonify({"error": "Prediction failed"}), 500
+
+
+def _save_upload(path: str, suffix: str, response) -> None:
+    """Keep a copy of an uploaded recording when ``SER_SAVE_UPLOADS`` names a folder.
+
+    Meant for debugging what the model actually receives from the web demo:
+    files are named ``<timestamp>_<predicted emotion><suffix>`` so a batch of
+    them can be listened to and re-run through ``ser-predict``.
+    """
+    target = os.environ.get("SER_SAVE_UPLOADS", "").strip()
+    if not target:
+        return
+    try:
+        Path(target).mkdir(parents=True, exist_ok=True)
+        status = response[1] if isinstance(response, tuple) else 200
+        body = (response[0] if isinstance(response, tuple) else response).get_json() or {}
+        label = body.get("emotion", "error") if status == 200 else "error"
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+        shutil.copyfile(path, Path(target) / f"{stamp}_{label}{suffix}")
+    except OSError:
+        logger.exception("Could not save upload to %s", target)
 
 
 @app.get("/samples")
@@ -133,7 +162,13 @@ def sample_audio(sample_id: str):
 
 @app.get("/health")
 def health():
-    return jsonify({"status": "healthy", "model": MODEL_ID})
+    """Liveness check; also reports which model revision is in memory once loaded."""
+    info = {"status": "healthy", "model": MODEL_ID, "model_loaded": False}
+    clf = predict_module._classifiers.get(MODEL_ID)
+    if clf is not None:
+        info["model_loaded"] = True
+        info["model_revision"] = getattr(clf.model.config, "_commit_hash", None)
+    return jsonify(info)
 
 
 @app.get("/emotions")
