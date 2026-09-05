@@ -14,10 +14,14 @@ studio clips only and collapses to a few classes on noisy microphone audio:
   * the convolutional feature encoder is frozen
   * label smoothing and weight decay
   * model selection on a validation split, not on the test split
+  * class-weighted loss when the training split mixes corpora (see ser.data
+    --extra-corpora): calm exists only in RAVDESS and would otherwise be
+    drowned out
 
 Usage:
     python -m ser.train --data ravdess_encoded
     python -m ser.train --data ravdess_encoded --epochs 20 --push-to-hub
+    python -m ser.train --data ravdess_plus --epochs 12 --push-to-hub    # with extra corpora
     python -m ser.train --data ravdess_encoded --no-augment          # reproduce the old recipe
     python -m ser.train --data ravdess_encoded --no-fp16 --max-steps 3  # CPU smoke test
 """
@@ -100,6 +104,41 @@ class PadCollator:
         return batch
 
 
+def class_weights_from(labels: list[int], num_classes: int, power: float = 0.5) -> torch.Tensor:
+    """Inverse-frequency class weights, damped by ``power`` and normalised to mean 1.
+
+    With the extra corpora, ``calm`` is about 2 % of the training clips (only
+    RAVDESS has it) while ``angry`` is over 15 %; unweighted training would
+    learn to rarely predict calm. ``power=0.5`` is a square-root damping so the
+    rare classes are up-weighted without dominating the loss.
+    """
+    counts = np.bincount(labels, minlength=num_classes).astype(np.float64)
+    counts = np.maximum(counts, 1.0)
+    weights = (counts.sum() / (num_classes * counts)) ** power
+    return torch.tensor(weights / weights.mean(), dtype=torch.float32)
+
+
+class WeightedTrainer(Trainer):
+    """Trainer with (optionally class-weighted) cross-entropy + label smoothing."""
+
+    def __init__(self, *args, class_weights: torch.Tensor | None = None,
+                 label_smoothing: float = 0.0, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.class_weights = class_weights
+        self.label_smoothing = label_smoothing
+
+    def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
+        labels = inputs.pop("labels")
+        outputs = model(**inputs)
+        weight = None
+        if self.class_weights is not None:
+            weight = self.class_weights.to(outputs.logits.device)
+        loss = torch.nn.functional.cross_entropy(
+            outputs.logits.float(), labels, weight=weight, label_smoothing=self.label_smoothing
+        )
+        return (loss, outputs) if return_outputs else loss
+
+
 def build_compute_metrics():
     accuracy = evaluate.load("accuracy")
 
@@ -136,6 +175,19 @@ def train(args: argparse.Namespace) -> None:
 
     train_ds = dataset["train"]
     eval_ds = dataset[args.eval_split]
+
+    corpora_in_train = sorted(set(train_ds["corpus"])) if "corpus" in train_ds.column_names else []
+    use_weights = args.class_weights == "on" or (
+        args.class_weights == "auto" and len(corpora_in_train) > 1
+    )
+    class_weights = None
+    if use_weights:
+        class_weights = class_weights_from(train_ds["label"], len(ID2LABEL))
+        logger.info("Class weights (%s): %s", ", ".join(corpora_in_train) or "ravdess",
+                    {ID2LABEL[i]: round(float(w), 2) for i, w in enumerate(class_weights)})
+    else:
+        logger.info("Class weights OFF (corpora in train: %s)", corpora_in_train or ["ravdess"])
+
     train_ds.set_transform(make_transform(feature_extractor, augmenter, args.seed))
     eval_ds.set_transform(make_transform(feature_extractor, None, args.seed))
 
@@ -177,7 +229,8 @@ def train(args: argparse.Namespace) -> None:
         max_steps=args.max_steps,
         weight_decay=args.weight_decay,
         **warmup_kwargs,
-        label_smoothing_factor=args.label_smoothing,
+        # label smoothing is applied in WeightedTrainer.compute_loss, not by the Trainer
+        label_smoothing_factor=0.0,
         logging_steps=5,
         load_best_model_at_end=True,
         metric_for_best_model="accuracy",
@@ -190,7 +243,7 @@ def train(args: argparse.Namespace) -> None:
         hub_model_id=args.hub_model_id,
     )
 
-    trainer = Trainer(
+    trainer = WeightedTrainer(
         model=model,
         args=training_args,
         train_dataset=train_ds,
@@ -198,6 +251,8 @@ def train(args: argparse.Namespace) -> None:
         data_collator=PadCollator(feature_extractor),
         processing_class=feature_extractor,
         compute_metrics=build_compute_metrics(),
+        class_weights=class_weights,
+        label_smoothing=args.label_smoothing,
     )
 
     logger.info("Starting training (%d epochs, batch %d x %d, lr %s, eval on '%s') ...",
@@ -242,6 +297,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--warmup-ratio", type=float, default=0.1)
     parser.add_argument("--weight-decay", type=float, default=0.01)
     parser.add_argument("--label-smoothing", type=float, default=0.1)
+    parser.add_argument("--class-weights", choices=["auto", "on", "off"], default="auto",
+                        help="Inverse-frequency class weights in the loss; 'auto' turns them on "
+                             "when the training split mixes several corpora (default: auto)")
     parser.add_argument("--mask-time-prob", type=float, default=0.05,
                         help="SpecAugment: fraction of time steps masked")
     parser.add_argument("--no-augment", dest="augment", action="store_false",

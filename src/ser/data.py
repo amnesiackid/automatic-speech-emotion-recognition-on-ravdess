@@ -17,10 +17,17 @@ Splits:
     test speakers are never seen in training (a more honest estimate of how
     the model behaves on new voices)
 
+Extra corpora (``--extra-corpora crema-d tess savee`` or ``all``) are
+downloaded from Kaggle and added to the *training* split only, so the RAVDESS
+validation and test numbers stay comparable across runs. They add 97 speakers
+with other accents and recording chains, which is what a RAVDESS-only model
+lacks when it meets a new voice.
+
 Usage:
     python -m ser.data
     python -m ser.data --output data/ravdess --val-size 0.1 --seed 42
     python -m ser.data --split-by-actor
+    python -m ser.data --extra-corpora all --output ravdess_plus
 """
 
 from __future__ import annotations
@@ -28,14 +35,25 @@ from __future__ import annotations
 import argparse
 import io
 import logging
+import math
 import re
 
 import numpy as np
 import soundfile as sf
 import torch
 import torchaudio.functional as AF
-from datasets import Audio, ClassLabel, Dataset, DatasetDict, Features, Value, load_dataset
+from datasets import (
+    Audio,
+    ClassLabel,
+    Dataset,
+    DatasetDict,
+    Features,
+    Value,
+    concatenate_datasets,
+    load_dataset,
+)
 
+from ser import corpora
 from ser.labels import LABEL2ID, LABELS
 
 try:  # datasets >= 4 calls the list feature ``List``; older versions ``Sequence``
@@ -64,6 +82,7 @@ PROCESSED_FEATURES = Features(
         "label": ClassLabel(names=LABELS),
         "actor": Value("int32"),
         "intensity": Value("string"),
+        "corpus": Value("string"),
     }
 )
 
@@ -79,16 +98,38 @@ def load_raw(dataset_id: str = DATASET_ID) -> Dataset:
     return ds
 
 
+MAX_RESAMPLE_PHASES = 1000  # above this, torchaudio's polyphase kernel gets very slow
+
+
+def resample(x: np.ndarray, sr: int, target_sr: int = SAMPLE_RATE) -> np.ndarray:
+    """Resample a mono float32 array to ``target_sr``.
+
+    torchaudio's resampler costs ``sr / gcd(sr, target_sr)`` filter phases; for
+    friendly rates (48 000, 44 100) that is cheap, but for TESS's 24 414 Hz it
+    is 12 207 phases and about 3 s per clip. Such ratios use FFT (sinc)
+    resampling instead, which is exact for any ratio and takes milliseconds.
+    """
+    if sr == target_sr:
+        return x.astype(np.float32)
+    if sr // math.gcd(sr, target_sr) <= MAX_RESAMPLE_PHASES:
+        y = AF.resample(torch.from_numpy(np.ascontiguousarray(x)), orig_freq=sr, new_freq=target_sr)
+        return y.numpy().astype(np.float32)
+    n_in = len(x)
+    n_out = int(round(n_in * target_sr / sr))
+    spec = np.fft.rfft(x)
+    out = np.zeros(n_out // 2 + 1, dtype=spec.dtype)
+    keep = min(len(out), len(spec))
+    out[:keep] = spec[:keep]  # truncating the spectrum is an ideal low-pass
+    return (np.fft.irfft(out, n=n_out) * (n_out / n_in)).astype(np.float32)
+
+
 def decode_waveform(audio: dict, target_sr: int = SAMPLE_RATE) -> np.ndarray:
     """Decode one ``{"bytes", "path"}`` audio entry to a 16 kHz mono float32 array."""
     if audio.get("bytes") is not None:
         array, sr = sf.read(io.BytesIO(audio["bytes"]), dtype="float32", always_2d=True)
     else:
         array, sr = sf.read(audio["path"], dtype="float32", always_2d=True)
-    mono = array.mean(axis=1)
-    if sr != target_sr:
-        mono = AF.resample(torch.from_numpy(mono), orig_freq=sr, new_freq=target_sr).numpy()
-    return mono.astype(np.float32)
+    return resample(array.mean(axis=1), sr, target_sr)
 
 
 def actor_id(path: str | None) -> int:
@@ -106,6 +147,7 @@ def decode(ds: Dataset, num_proc: int = 1) -> Dataset:
             "label": LABEL2ID[example["emotion_labels"]],
             "actor": actor_id(example["audio"].get("path")),
             "intensity": example["intensity"],
+            "corpus": "ravdess",
         }
 
     logger.info("Decoding and resampling to %d Hz ...", SAMPLE_RATE)
@@ -118,6 +160,35 @@ def decode(ds: Dataset, num_proc: int = 1) -> Dataset:
     )
     logger.info("Actors found: %s", sorted(set(ds["actor"])))
     return ds
+
+
+def decode_extra_corpora(names: list[str], num_proc: int = 1) -> Dataset:
+    """Download the requested extra corpora from Kaggle and decode them like RAVDESS."""
+    parts = []
+    for name in names:
+        root = corpora.download(name)
+        clips = list(corpora.iter_corpus(name, root))
+        table = {
+            "path": [str(p) for p, _ in clips],
+            "label": [m["label"] for _, m in clips],
+            "actor": [m["actor"] for _, m in clips],
+            "intensity": [m["intensity"] for _, m in clips],
+            "corpus": [name] * len(clips),
+        }
+        logger.info("%s: %d clips from %d speakers", name, len(clips), len(set(table["actor"])))
+
+        def _process(example):
+            return {"waveform": decode_waveform({"bytes": None, "path": example["path"]})}
+
+        ds = Dataset.from_dict(table).map(
+            _process,
+            remove_columns=["path"],
+            features=PROCESSED_FEATURES,
+            num_proc=num_proc,
+            desc=f"decode {name}",
+        )
+        parts.append(ds)
+    return concatenate_datasets(parts)
 
 
 def make_splits(
@@ -176,7 +247,7 @@ def make_splits(
 def validate(splits: DatasetDict) -> None:
     """Sanity-check the processed dataset."""
     sample = splits["train"][0]
-    assert set(sample) == {"waveform", "label", "actor", "intensity"}, sample.keys()
+    assert set(sample) == set(PROCESSED_FEATURES), sample.keys()
     wave = np.asarray(sample["waveform"], dtype=np.float32)
     assert wave.ndim == 1 and 1.0 <= len(wave) / SAMPLE_RATE <= 10.0, wave.shape
     assert 0 <= sample["label"] < len(LABELS)
@@ -204,6 +275,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--split-by-actor", action="store_true",
                         help="Speaker-independent splits: hold out whole actors")
     parser.add_argument("--num-proc", type=int, default=1, help="Workers for decoding")
+    parser.add_argument("--extra-corpora", nargs="+", default=[],
+                        choices=[*corpora.CORPORA, "all"], metavar="CORPUS",
+                        help="Add CREMA-D / TESS / SAVEE (from Kaggle) to the training split; "
+                             "'all' for the three of them")
     return parser.parse_args()
 
 
@@ -211,6 +286,16 @@ def main() -> None:
     args = parse_args()
     ds = decode(load_raw(), num_proc=args.num_proc)
     splits = make_splits(ds, args.test_size, args.val_size, args.seed, args.split_by_actor)
+
+    extra = list(corpora.CORPORA) if "all" in args.extra_corpora else args.extra_corpora
+    if extra:
+        extra_ds = decode_extra_corpora(extra, num_proc=args.num_proc)
+        splits["train"] = concatenate_datasets([splits["train"], extra_ds])
+        counts = np.bincount(splits["train"]["label"], minlength=len(LABELS))
+        logger.info("train with extra corpora: %d clips  per class: %s  corpora: %s",
+                    len(splits["train"]), counts.tolist(),
+                    sorted(set(splits["train"]["corpus"])))
+
     validate(splits)
     splits.save_to_disk(args.output)
     logger.info("Dataset saved to: %s", args.output)

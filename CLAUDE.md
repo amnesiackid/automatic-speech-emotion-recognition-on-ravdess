@@ -15,6 +15,7 @@ not used by the CLI, server or web demo.
 ```bash
 pip install -e ".[server,dev]"      # inference + Flask API + tests
 pip install -e ".[train]"           # add this to run src/ser/data.py, train.py, evaluate.py
+pip install -e ".[train,corpora]"   # optional: Kaggle corpora for `ser.data --extra-corpora`
 pip install -e ".[baseline]"        # add this to run experiments/baseline_cnn
 ```
 
@@ -62,10 +63,22 @@ smoothing, and selects the best epoch on the validation split. It supports trans
 **`src/ser/evaluate.py`** runs batched inference on a split from `ser.data` and `--robustness`
 re-evaluates under added noise at 20 / 10 dB SNR.
 
-Background: the published model collapses to calm / disgust / fearful on noisy microphone audio
-(86 % clean, ~50 % at 20 dB SNR, ~34 % at 10 dB). That is a training-data problem, not an inference
-bug; the augmentation recipe above is the fix, and any new checkpoint should be judged by the
-`--robustness` table, not the clean accuracy alone.
+**`src/ser/corpora.py`** parses CREMA-D / TESS / SAVEE file names into the shared label set (actor
+ids offset to 1000+, 2000+, 3000+) and downloads them with kagglehub. `ser.data --extra-corpora`
+adds them to the *training* split only; the `corpus` column records the origin. `ser.train` turns
+on square-root-damped inverse-frequency class weights automatically when several corpora are in
+train (`WeightedTrainer.compute_loss`, which also applies label smoothing; the Trainer's own
+`label_smoothing_factor` is kept at 0 to avoid double smoothing).
+
+Background: the first published model collapsed to calm / disgust / fearful on noisy microphone
+audio (85 % clean, 44 % at 20 dB SNR, 35 % at 10 dB). Retraining with augmentation fixed the noise
+part (86 / 81 / 77 %). The remaining gap on new voices is speaker diversity, which is what the extra
+corpora address. Judge any checkpoint by `ser.evaluate --robustness`, not the clean accuracy alone.
+
+Server debugging aids: `GET /health` reports `model_loaded` and the loaded `model_revision`;
+`SER_SAVE_UPLOADS=<dir>` keeps a copy of every uploaded recording named after its prediction.
+The front end opens the microphone once per page load and captures raw audio (no browser noise
+suppression / AGC); serve it via `localhost`, since `file://` pages re-prompt for the microphone.
 
 **`src/ser/ravdess.py`** decodes RAVDESS file names (`03-01-05-01-02-01-12.wav` ->
 emotion, intensity, statement, actor) with `parse_filename`; the emotion code maps through

@@ -13,7 +13,7 @@ from ser.labels import LABELS, NUM_LABELS  # noqa: E402
 
 
 def _fake_dataset(n_actors: int = 24, clips_per_actor_and_label: int = 1):
-    rows = {"waveform": [], "label": [], "actor": [], "intensity": []}
+    rows = {"waveform": [], "label": [], "actor": [], "intensity": [], "corpus": []}
     for actor in range(1, n_actors + 1):
         for label in range(NUM_LABELS):
             for _ in range(clips_per_actor_and_label):
@@ -21,6 +21,7 @@ def _fake_dataset(n_actors: int = 24, clips_per_actor_and_label: int = 1):
                 rows["label"].append(label)
                 rows["actor"].append(actor)
                 rows["intensity"].append("normal")
+                rows["corpus"].append("ravdess")
     return datasets.Dataset.from_dict(rows, features=data.PROCESSED_FEATURES)
 
 
@@ -42,6 +43,23 @@ def test_decode_waveform_resamples_to_16k_mono():
     wave_ = data.decode_waveform({"bytes": buf.getvalue(), "path": "x.wav"})
     assert wave_.dtype == np.float32 and wave_.ndim == 1
     assert len(wave_) == pytest.approx(data.SAMPLE_RATE * seconds, rel=0.01)
+
+
+@pytest.mark.parametrize("sr", [48_000, 44_100, 24_414, 22_050])
+def test_resample_preserves_a_tone_at_any_rate(sr):
+    import time
+
+    t = np.arange(int(sr * 1.5)) / sr
+    tone = np.sin(2 * np.pi * 440 * t).astype(np.float32)
+    start = time.perf_counter()
+    out = data.resample(tone, sr)
+    assert time.perf_counter() - start < 1.0  # TESS's 24 414 Hz used to take ~3 s
+    assert out.dtype == np.float32
+    assert len(out) == pytest.approx(data.SAMPLE_RATE * 1.5, abs=2)
+    spec = np.abs(np.fft.rfft(out[2000:-2000]))
+    freqs = np.fft.rfftfreq(len(out) - 4000, 1 / data.SAMPLE_RATE)
+    assert abs(freqs[np.argmax(spec)] - 440) < 5
+    assert np.sqrt(np.mean(out**2)) == pytest.approx(np.sqrt(0.5), rel=0.05)
 
 
 def test_random_split_sizes_and_stratified_validation():

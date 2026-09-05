@@ -101,6 +101,19 @@ To enable "Try testing on RAVDESS", point the server at a folder with the RAVDES
 RAVDESS_DIR=/path/to/RAVDESS python server/app.py
 ```
 
+Recording notes:
+
+- Open the demo through the server (<http://localhost:5000>), not by double-clicking
+  `frontend/index.html`. Browsers do not remember microphone permission for `file://` pages, so a
+  page opened from disk asks again on every page load; through `localhost` it asks once. Within a
+  page load the microphone is opened once and reused for every recording.
+- Recordings are captured raw (no browser noise suppression, echo cancellation or automatic gain)
+  because that processing strips the low-energy cues the model uses, and the model is trained with
+  noise anyway.
+- To see exactly what the model receives, start the server with `SER_SAVE_UPLOADS=/some/folder`;
+  every uploaded recording is kept there, named after the predicted emotion, and can be re-run with
+  `ser-predict`. `GET /health` reports which model revision is loaded.
+
 The same server exposes a small JSON API:
 
 | Method | Endpoint | Description |
@@ -109,7 +122,7 @@ The same server exposes a small JSON API:
 | `GET` | `/samples` | clips found under `RAVDESS_DIR` with their decoded metadata (`available: false` when unset) |
 | `GET` | `/samples/<id>` | stream one of those clips |
 | `GET` | `/emotions` | the eight labels in model order |
-| `GET` | `/health` | liveness check |
+| `GET` | `/health` | liveness check; `model_loaded` and, once loaded, `model_revision` (Hub commit) |
 
 ```bash
 curl -X POST http://localhost:5000/predict -F "audio=@speech.wav"
@@ -169,9 +182,50 @@ the final epoch of the original run; the best epoch in its training log scored 8
 
 Everything is a flag: `--no-augment --no-spec-augment --no-freeze-feature-encoder --label-smoothing 0
 --eval-split test` reproduces the old recipe. Other defaults: 20 epochs, batch size 8, learning
-rate 5e-5 with 10 % warm-up, mixed precision. Expect the clean-split accuracy to stay around the
-old number or drop a point or two while the noisy-condition accuracy rises substantially; judge a
-checkpoint by the `--robustness` table, not by the clean number alone.
+rate 5e-5 with 10 % warm-up, mixed precision. Judge a checkpoint by the `--robustness` table, not
+by the clean number alone.
+
+Result of retraining with this recipe (Hub revision `93da8aa`):
+
+| Condition (RAVDESS test split) | old model | retrained |
+|---|---|---|
+| clean | 85.4 % | 85.8 % |
+| + white noise, 20 dB SNR | 44.4 % | 80.6 % |
+| + white noise, 10 dB SNR | 35.1 % | 77.1 % |
+| browser path (opus/webm at 48 kHz, decoded by ffmpeg) + 15 dB noise, 96-clip subset | 40.6 % | 79.2 % |
+
+Noise is solved. What remains is the **speaker gap**: RAVDESS has 24 North American actors, and a
+new voice with another accent still tends to land on a couple of classes. The fix for that is more
+speakers, not more epochs.
+
+### Optional: training on more speakers
+
+By default everything above uses RAVDESS only and needs nothing but the Hugging Face dataset. As an
+opt-in step, `ser.data --extra-corpora` adds the three corpora the baseline experiment already
+used. They come from Kaggle, so this needs the `corpora` extra and a Kaggle account
+(`pip install -e ".[train,corpora]"`, plus `~/.kaggle/kaggle.json` or `KAGGLE_USERNAME` /
+`KAGGLE_KEY`; on Colab `kagglehub.login()` prompts for them):
+
+| Corpus | Clips | Speakers | Labels covered |
+|---|---|---|---|
+| CREMA-D | 7 442 | 91, diverse ages and ethnicities | angry disgust fearful happy neutral sad |
+| TESS | 2 800 | 2 actresses | all but calm |
+| SAVEE | 480 | 4 male speakers, British | all but calm |
+
+```bash
+pip install -e ".[train,corpora]"
+python -m ser.data --extra-corpora all --output ravdess_plus     # ~12 000 training clips
+python -m ser.train --data ravdess_plus --epochs 12 --push-to-hub
+python -m ser.evaluate --data ravdess_plus --robustness
+```
+
+Any subset works too, e.g. `--extra-corpora crema-d`. Leave the flag out to stay RAVDESS-only.
+
+The extra clips go into the training split only; validation and test stay pure RAVDESS so the
+numbers remain comparable with the table above. Because `calm` exists only in RAVDESS (about 2 % of
+the mixed set), `ser.train` switches on inverse-frequency class weights automatically when the
+training split mixes corpora (`--class-weights on|off|auto`). Twelve epochs over the larger set is
+roughly the same number of optimiser steps as twenty over RAVDESS alone.
 
 The original notebook recipe is kept in
 [`notebooks/03_distilhubert_finetune.ipynb`](notebooks/03_distilhubert_finetune.ipynb).
@@ -183,6 +237,7 @@ The original notebook recipe is kept in
 │   ├── labels.py            #   the one label table used everywhere
 │   ├── predict.py           #   model loading + classify(); also the `ser-predict` CLI
 │   ├── data.py              #   dataset download, resampling, train/validation/test splits
+│   ├── corpora.py           #   CREMA-D / TESS / SAVEE file-name parsing + Kaggle download
 │   ├── augment.py           #   noise / speed / reverb / low-pass augmentations
 │   ├── train.py             #   fine-tuning with the HF Trainer (augmentation on the fly)
 │   └── evaluate.py          #   metrics, plots, and the noise-robustness sweep

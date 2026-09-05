@@ -41,6 +41,8 @@ train = [
   "seaborn>=0.13",
   "huggingface_hub>=0.20",
 ]
+# Optional: CREMA-D / TESS / SAVEE from Kaggle for `ser.data --extra-corpora` (needs a Kaggle account)
+corpora = ["kagglehub>=0.3"]
 # Legacy Keras baseline in experiments/baseline_cnn
 baseline = ["tensorflow>=2.16", "librosa>=0.10"]
 dev = ["pytest>=7.4", "ruff>=0.4"]
