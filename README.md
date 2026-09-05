@@ -17,6 +17,7 @@ Two earlier models built during the project are kept as documented experiments.
 > Student project for *Computational Linguistics Team Laboratory: Phonetics*,
 > Institute for Natural Language Processing, University of Stuttgart.
 > Authors: Feiyang Yang and Zhiyu Bao. Full write-up: [`docs/report.pdf`](docs/report.pdf).
+> Post-project diagnosis and improvements: [`docs/evaluation.md`](docs/evaluation.md).
 
 ## Results
 
@@ -248,7 +249,7 @@ The original notebook recipe is kept in
 │   └── wav2vec2_cnn/        #   frozen wav2vec2 + CNN (scripts; checkpoint must be retrained)
 ├── notebooks/               # original training notebooks (see notebooks/README.md)
 ├── tests/                   # pytest suite; the model is mocked, no download needed
-├── docs/                    # project report and images
+├── docs/                    # project report, evaluation log (problems + fixes), images
 ├── pyproject.toml           # dependencies and extras: server, train, baseline, dev
 └── Dockerfile
 ```
