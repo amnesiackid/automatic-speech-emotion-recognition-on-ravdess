@@ -104,11 +104,11 @@ acoustic footprint (calm, disgust). More epochs on RAVDESS cannot fix this; more
 project's baseline experiment already used, downloaded from Kaggle (`pip install -e ".[train,corpora]"`
 plus Kaggle credentials):
 
-| Corpus | Clips | Speakers | Labels covered |
-|---|---|---|---|
-| CREMA-D | 7 439 | 91, diverse ages and ethnicities | angry disgust fearful happy neutral sad |
-| TESS | 2 818 | 2 actresses | all but calm |
-| SAVEE | 480 | 4 male British speakers | all but calm |
+| Corpus | Clips | Speakers | Accent | Labels covered |
+|---|---|---|---|---|
+| CREMA-D | 7 439 | 91, ages 20-74, mixed backgrounds | American (Philadelphia) | angry disgust fearful happy neutral sad |
+| TESS | 2 818 | 2 actresses, 26 and 64 | Canadian (Toronto) | all but calm |
+| SAVEE | 480 | 4 men, 27-31 | British (Surrey) | all but calm |
 
 The extra clips go into the training split only; validation and test remain pure RAVDESS so the
 tables above stay comparable. The mixed training set is 11 745 clips with calm at 1.2 % and
@@ -117,6 +117,25 @@ automatically (`--class-weights auto|on|off`; measured weights: calm 2.56, surpr
 about 0.7). Building the mixed set takes under three minutes; a CPU smoke test of training on it
 passes. **The full multi-speaker training run has not been done yet**; its numbers belong in the
 table below once it exists.
+
+**What the extra corpora do and do not add.** The speaker count is the headline (24 -> 121), but
+accent is not where the gain is. CREMA-D, about 63 % of the mixed training split, is American
+English; TESS is Standard Canadian English recorded in Toronto, the same city and the same accent
+region as RAVDESS, so it adds close to none; SAVEE is the only non-North-American accent and it is
+480 clips, roughly 4 % of train, from four men. What does grow substantially is speaker identity,
+age range (RAVDESS actors are in their twenties and thirties, CREMA-D spans 20 to 74), and the
+number of recording chains and sentence sets - out-of-distribution collapse is not caused by accent
+alone, so this still matters. Two gaps survive the mix. All four corpora are native English
+speakers, so a non-native voice is as far outside the training distribution as before. And `calm`
+exists only in RAVDESS, which leaves that class 100 % neutral North American Toronto speech - one of
+the two classes the model falls onto. If the multi-speaker checkpoint still misfires on real
+recordings, the next lever is a corpus that covers those gaps (ESD for non-native English,
+MSP-Podcast for in-the-wild speaker and channel variety), not more of these three.
+
+The speaker demographics above come from the corpus papers; the Kaggle mirrors carry audio only.
+CREMA-D's per-actor age, sex and self-reported race table is `VideoDemographics.csv` in the original
+CheyneyComputerScience repository. The mirrors hold one file more than the clip counts above for
+CREMA-D and TESS: those two have names `ser.corpora` does not recognise and are skipped.
 
 Side finding fixed on the way: TESS is sampled at 24 414 Hz, which triggers the same resampling
 slowdown as problem 2 (3 s per clip). `ser.data.resample` now falls back to FFT resampling for
