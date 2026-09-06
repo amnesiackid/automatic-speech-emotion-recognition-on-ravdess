@@ -18,7 +18,7 @@ env/
 # Downloaded / generated data and model artifacts (never committed;
 # the fine-tuned model lives on the HuggingFace Hub)
 data/
-ravdess_encoded/
+ravdess_*/
 distilhubert-finetuned-ravdess/
 results/
 experiments/wav2vec2_cnn/features/
