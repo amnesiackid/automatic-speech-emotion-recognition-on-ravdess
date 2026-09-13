@@ -1,0 +1,75 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ser-ravdess"
+version = "1.0.0"
+description = "Speech emotion recognition on RAVDESS with a fine-tuned DistilHuBERT model"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+  { name = "Zhiyu Bao" },
+  { name = "Feiyang Yang" },
+]
+keywords = ["speech-emotion-recognition", "ravdess", "hubert", "transformers", "audio-classification"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+# Runtime dependencies for inference (CLI + library).
+dependencies = [
+  "transformers>=4.46",
+  "torch>=2.1",
+  "torchaudio>=2.1",
+  "soundfile>=0.12",
+  "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+# Flask API + web demo
+server = ["flask>=2.3", "flask-cors>=4.0", "gunicorn>=21.2"]
+# Reproducing the DistilHuBERT fine-tuning pipeline (src/ser/data.py, train.py, evaluate.py)
+train = [
+  "datasets[audio]>=2.14",
+  "evaluate>=0.4",
+  "accelerate>=0.26",
+  "scikit-learn>=1.3",
+  "matplotlib>=3.7",
+  "seaborn>=0.13",
+  "huggingface_hub>=0.20",
+]
+# Optional: CREMA-D / TESS / SAVEE from Kaggle for `ser.data --extra-corpora` (needs a Kaggle account)
+corpora = ["kagglehub>=0.3"]
+# Legacy Keras baseline in experiments/baseline_cnn
+baseline = ["tensorflow>=2.16", "librosa>=0.10"]
+dev = ["pytest>=7.4", "ruff>=0.4"]
+
+[project.urls]
+Repository = "https://github.com/amnesiackid/automatic-speech-emotion-recognition-on-ravdess"
+Model = "https://huggingface.co/amnesiackid/distilhubert-finetuned-ravdess"
+Dataset = "https://huggingface.co/datasets/amnesiackid/ravdess-emotion-intensity"
+
+[project.scripts]
+ser-predict = "ser.predict:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = ["notebooks"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "B"]
+
+[tool.ruff.lint.isort]
+# "features" and "model" are the script-local modules in experiments/*
+known-first-party = ["ser", "features", "model"]

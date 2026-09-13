@@ -1,37 +1,36 @@
-data
-data.zip
-wav2vec2-emotion-model
-# macOS
-.DS_Store
-
 # Python
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
 
-# Jupyter Notebook Checkpoints
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Jupyter
 .ipynb_checkpoints/
 
-# Virtual environment
-/venv/
-/env/
-.venv/
-.env/
-
-# IDE / Editor specific
-.vscode/
-
-# 数据文件
-*.wav
-*.json
-
-# 模型文件
+# Downloaded / generated data and model artifacts (never committed;
+# the fine-tuned model lives on the HuggingFace Hub)
+data/
+ravdess_*/
+distilhubert-finetuned-ravdess/
+results/
+experiments/wav2vec2_cnn/features/
+experiments/wav2vec2_cnn/checkpoints/
 *.pt
+*.pth
 *.safetensors
+*.wav
+*.mp3
 
-# 图片文件
-*.jpg
-*.jpeg
-*.png
-*.gif
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
